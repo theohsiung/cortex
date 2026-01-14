@@ -66,6 +66,7 @@ Cortex 回報: "房間整理完成！"
 ```
 cortex/
 ├── cortex.py              # 主程式入口 - Cortex 類別
+├── example.py             # 執行範例
 ├── app/
 │   ├── agents/            # Agent 相關程式碼
 │   │   ├── base/          # 基礎 Agent
@@ -83,6 +84,7 @@ cortex/
 │       ├── plan_toolkit.py # 規劃工具 (create_plan, update_plan)
 │       └── act_toolkit.py  # 執行工具 (mark_step)
 ├── tests/                 # 測試程式碼
+│   └── conftest.py        # 測試設定與 Mock
 └── docs/                  # 文件
 ```
 
@@ -102,12 +104,19 @@ cortex/
 - 回報最終結果
 
 ```python
-# 使用範例
+# 使用範例 - 預設 LlmAgent
 from cortex import Cortex
 
 cortex = Cortex(model=your_llm_model)
 result = await cortex.execute("幫我寫一個計算機程式")
 print(result)
+
+# 進階使用 - 自訂 Agent (LoopAgent, SequentialAgent, etc.)
+from google.adk.agents import LoopAgent
+
+my_planner = LoopAgent(name="planner", ...)
+my_executor = LoopAgent(name="executor", ...)
+cortex = Cortex(planner_agent=my_planner, executor_agent=my_executor)
 ```
 
 ---
@@ -117,10 +126,18 @@ print(result)
 **這是什麼？** 所有 Agent 的「爸爸」，定義了 Agent 的基本行為。
 
 **它做什麼？**
-- 包裝 Google ADK 的 LlmAgent
+- 包裝 Google ADK 的任意 Agent 類型 (LlmAgent, LoopAgent, SequentialAgent, ParallelAgent)
 - 管理與 LLM (大型語言模型) 的對話
 - 追蹤工具呼叫事件
 - 連接到 Plan (執行計畫)
+
+**支援的 ADK Agent 類型：**
+| Agent | 說明 |
+|-------|------|
+| LlmAgent | 基本的 LLM Agent (預設) |
+| LoopAgent | 可重複執行的 Agent |
+| SequentialAgent | 依序執行多個子 Agent |
+| ParallelAgent | 同時執行多個子 Agent |
 
 **重要概念 - 繼承：**
 ```
@@ -287,41 +304,72 @@ ExecutorAgent 執行計畫 ← 從 TaskManager 取出
 uv sync
 
 # 或使用 pip
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ### 2. 執行測試
 
 ```bash
 # 執行所有測試
-pytest tests/ -v
+uv run pytest tests/ -v
 
 # 執行特定測試
-pytest tests/task/test_plan.py -v
+uv run pytest tests/task/test_plan.py -v
 ```
 
-### 3. 基本使用
+### 3. 執行範例
+
+```bash
+uv run python example.py
+```
+
+### 4. 基本使用
 
 ```python
 import asyncio
+from google.adk.models import LiteLlm
 from cortex import Cortex
-from google.adk.models.lite_llm import LiteLlm
 
-# 設定 LLM 模型
+# Model 設定
+API_BASE_URL = "http://10.136.3.209:8000/v1"
+MODEL_NAME = "Qwen/Qwen3-4B-Instruct-2507"
+
+async def main():
+    # 使用 LiteLLM 連接本地或遠端 LLM
+    model = LiteLlm(
+        model=f"openai/{MODEL_NAME}",
+        api_base=API_BASE_URL,
+    )
+
+    # 創建 Cortex 實例
+    cortex = Cortex(model=model)
+
+    # 執行任務
+    result = await cortex.execute("寫一個 Hello World 程式")
+    print(result)
+
+asyncio.run(main())
+```
+
+**其他 Model 設定範例：**
+
+```python
+# OpenAI
 model = LiteLlm(
     model="openai/gpt-4",
     api_key="your-api-key"
 )
 
-# 創建 Cortex 實例
-cortex = Cortex(model=model)
+# Google Gemini (透過 google-genai)
+from google import genai
+client = genai.Client()
+model = "gemini-2.0-flash"
 
-# 執行任務
-async def main():
-    result = await cortex.execute("寫一個 Hello World 程式")
-    print(result)
-
-asyncio.run(main())
+# Anthropic Claude
+model = LiteLlm(
+    model="anthropic/claude-3-sonnet",
+    api_key="your-api-key"
+)
 ```
 
 ---
@@ -342,7 +390,7 @@ asyncio.run(main())
 
 ## 測試覆蓋
 
-目前共有 **47 個測試**，涵蓋所有核心功能：
+目前共有 **55 個測試**，涵蓋所有核心功能：
 
 | 模組 | 測試數量 | 說明 |
 |------|----------|------|
@@ -350,10 +398,10 @@ asyncio.run(main())
 | Plan | 12 | 建立、更新、狀態追蹤、依賴關係 |
 | PlanToolkit | 7 | create_plan、update_plan 工具 |
 | ActToolkit | 7 | mark_step 工具 |
-| BaseAgent | 6 | 初始化、工具事件追蹤 |
-| PlannerAgent | 3 | 初始化、工具整合 |
-| ExecutorAgent | 3 | 初始化、工具整合 |
-| Cortex | 4 | 初始化、歷史記錄、清理 |
+| BaseAgent | 8 | 初始化、工具事件追蹤、Agent 儲存 |
+| PlannerAgent | 4 | 初始化、工具整合、自訂 Agent |
+| ExecutorAgent | 4 | 初始化、工具整合、自訂 Agent |
+| Cortex | 8 | 初始化、歷史記錄、清理、自訂 Agent |
 
 ---
 
