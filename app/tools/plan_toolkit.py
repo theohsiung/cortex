@@ -1,93 +1,91 @@
-# Copyright 2025 ZTE Corporation.
-# All Rights Reserved.
-#
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
-#
-#         http://www.apache.org/licenses/LICENSE-2.0
-#
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
-
-import ast
-from typing import List, Optional, Dict
-
-from app.cosight.task.plan_report_manager import plan_report_event_manager
-from app.cosight.task.todolist import Plan
-from app.common.logger_util import logger
+from google.genai.types import FunctionDeclaration
+from app.task.plan import Plan
 
 
 class PlanToolkit:
-    r"""A class representing a toolkit for creating and managing a single plan."""
+    """Planner tools: create and update plans"""
 
-    def __init__(self, plan: Optional[Plan] = None):
+    def __init__(self, plan: Plan):
         self.plan = plan
 
-    def create_plan(self, title: str, steps: List[str], dependencies: Optional[Dict[int, List[int]]] = None) -> str:
-        r"""Create a new plan with the given title, steps, and dependencies.
+    # Schema definitions
+    CREATE_PLAN_SCHEMA = FunctionDeclaration(
+        name="create_plan",
+        description="Create a new execution plan. Break down the task into executable steps.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Plan title, briefly describe the goal"
+                },
+                "steps": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of steps, each should be a concrete executable action"
+                },
+                "dependencies": {
+                    "type": "object",
+                    "description": "Step dependencies. Format: {\"1\": [0]} means step 1 depends on step 0"
+                }
+            },
+            "required": ["title", "steps"]
+        }
+    )
 
-        Args:
-            title (str): Title for the plan
-            steps (List[str]): List of steps for the plan
-            dependencies (Optional[Dict[int, List[int]]]): Dictionary of step dependencies
-                e.g., {1: [0]} means step 1 depends on step 0. If None, steps will be sequential.
+    UPDATE_PLAN_SCHEMA = FunctionDeclaration(
+        name="update_plan",
+        description="Update the existing plan's title, steps, or dependencies",
+        parameters={
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "New title (optional)"
+                },
+                "steps": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "New steps list (optional)"
+                },
+                "dependencies": {
+                    "type": "object",
+                    "description": "New dependencies (optional)"
+                }
+            }
+        }
+    )
 
-        Returns:
-            str: Success message with plan details
-        """
-        logger.info(
-            f"create plan, title is {title}, steps is {steps}, dependencies({type(dependencies)}) is {dependencies}")
-
-        if dependencies and isinstance(dependencies, str):
-            try:
-                dependencies = ast.literal_eval(dependencies)
-            except Exception as e:
-                logger.error(f"Plan Warning: not literal_eval('{dependencies}') to dict, raise error: {str(e)}",
-                            exc_info=True)
-                dependencies = None
-
-        # Generate sequential dependencies if None
+    def create_plan(
+        self,
+        title: str,
+        steps: list[str],
+        dependencies: dict[int, list[int]] = None
+    ) -> str:
+        """Create a new plan with title, steps, and optional dependencies"""
         if dependencies is None and len(steps) > 1:
             dependencies = {i: [i - 1] for i in range(1, len(steps))}
 
-        self.plan.update(title, steps, dependencies)
-        result = f"Plan created successfully\n\n{self.plan.format()}"
-        plan_report_event_manager.publish("plan_created", self.plan)
-        logger.info(result)
-        return result
+        self.plan.update(title=title, steps=steps, dependencies=dependencies)
+        return f"Plan created:\n{self.plan.format()}"
 
-    def update_plan(self, title: Optional[str] = None, steps: Optional[List[str]] = None,
-                    dependencies: Optional[Dict[int, List[int]]] = None) -> str:
-        r"""Update the existing plan with new title, steps, or dependencies while preserving completed steps.
+    def update_plan(
+        self,
+        title: str = None,
+        steps: list[str] = None,
+        dependencies: dict[int, list[int]] = None
+    ) -> str:
+        """Update existing plan"""
+        self.plan.update(title=title, steps=steps, dependencies=dependencies)
+        return f"Plan updated:\n{self.plan.format()}"
 
-        Args:
-            title (Optional[str]): New title for the plan
-            steps (Optional[List[str]]): New list of steps for the plan
-            dependencies (Optional[Dict[int, List[int]]]): New dependencies between steps
+    def get_tool_declarations(self) -> list[FunctionDeclaration]:
+        """Return schema list for LlmAgent"""
+        return [self.CREATE_PLAN_SCHEMA, self.UPDATE_PLAN_SCHEMA]
 
-        Returns:
-            str: Success message with updated plan details
-        """
-        if self.plan is None:
-            return "No plan exists. Create a plan with the 'create' command."
-
-        logger.info(
-            f"update plan, title is {title}, steps is {steps}, dependencies({type(dependencies)}) is {dependencies}")
-
-        if dependencies and isinstance(dependencies, str):
-            try:
-                dependencies = ast.literal_eval(dependencies)
-            except Exception as e:
-                logger.error(f"Plan Warning: not literal_eval('{dependencies}') to dict, raise error: {str(e)}",
-                            exc_info=True)
-                dependencies = None
-
-        self.plan.update(title, steps, dependencies)
-        result = f"Plan updated successfully\n\n{self.plan.format()}"
-        plan_report_event_manager.publish("plan_updated", self.plan)
-        logger.info(f"update result is {result}")
-        return result
+    def get_tool_functions(self) -> dict:
+        """Return function mapping for tool execution"""
+        return {
+            "create_plan": self.create_plan,
+            "update_plan": self.update_plan
+        }
