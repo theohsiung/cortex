@@ -22,12 +22,7 @@ class ExecutorAgent(BaseAgent):
         executor = ExecutorAgent(plan_id="p1", agent=my_agent)
     """
 
-    def __init__(
-        self,
-        plan_id: str,
-        model: Any = None,
-        agent: Any = None
-    ):
+    def __init__(self, plan_id: str, model: Any = None, agent: Any = None):
         """
         Initialize ExecutorAgent.
 
@@ -47,17 +42,16 @@ class ExecutorAgent(BaseAgent):
             if model is None:
                 raise ValueError("Either 'model' or 'agent' must be provided")
             from google.adk.agents import LlmAgent
+
             agent = LlmAgent(
                 name="executor",
                 model=model,
-                tools=toolkit.get_tool_declarations(),
-                instruction=EXECUTOR_SYSTEM_PROMPT
+                tools=list(toolkit.get_tool_functions().values()),
+                instruction=EXECUTOR_SYSTEM_PROMPT,
             )
 
         super().__init__(
-            agent=agent,
-            tool_functions=toolkit.get_tool_functions(),
-            plan_id=plan_id
+            agent=agent, tool_functions=toolkit.get_tool_functions(), plan_id=plan_id
         )
 
     async def execute_step(self, step_index: int, context: str = "") -> str:

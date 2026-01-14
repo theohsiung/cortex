@@ -17,20 +17,20 @@ class PlanToolkit:
             "properties": {
                 "title": {
                     "type": "string",
-                    "description": "Plan title, briefly describe the goal"
+                    "description": "Plan title, briefly describe the goal",
                 },
                 "steps": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "List of steps, each should be a concrete executable action"
+                    "description": "List of steps, each should be a concrete executable action",
                 },
                 "dependencies": {
                     "type": "object",
-                    "description": "Step dependencies. Format: {\"1\": [0]} means step 1 depends on step 0"
-                }
+                    "description": 'Step dependencies. Format: {"1": [0]} means step 1 depends on step 0',
+                },
             },
-            "required": ["title", "steps"]
-        }
+            "required": ["title", "steps"],
+        },
     )
 
     UPDATE_PLAN_SCHEMA = FunctionDeclaration(
@@ -39,28 +39,22 @@ class PlanToolkit:
         parameters={
             "type": "object",
             "properties": {
-                "title": {
-                    "type": "string",
-                    "description": "New title (optional)"
-                },
+                "title": {"type": "string", "description": "New title (optional)"},
                 "steps": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "New steps list (optional)"
+                    "description": "New steps list (optional)",
                 },
                 "dependencies": {
                     "type": "object",
-                    "description": "New dependencies (optional)"
-                }
-            }
-        }
+                    "description": "New dependencies (optional)",
+                },
+            },
+        },
     )
 
     def create_plan(
-        self,
-        title: str,
-        steps: list[str],
-        dependencies: dict[int, list[int]] = None
+        self, title: str, steps: list[str], dependencies: dict[int, list[int]] = None
     ) -> str:
         """Create a new plan with title, steps, and optional dependencies"""
         if dependencies is None and len(steps) > 1:
@@ -73,7 +67,7 @@ class PlanToolkit:
         self,
         title: str = None,
         steps: list[str] = None,
-        dependencies: dict[int, list[int]] = None
+        dependencies: dict[int, list[int]] = None,
     ) -> str:
         """Update existing plan"""
         self.plan.update(title=title, steps=steps, dependencies=dependencies)
@@ -85,7 +79,4 @@ class PlanToolkit:
 
     def get_tool_functions(self) -> dict:
         """Return function mapping for tool execution"""
-        return {
-            "create_plan": self.create_plan,
-            "update_plan": self.update_plan
-        }
+        return {"create_plan": self.create_plan, "update_plan": self.update_plan}

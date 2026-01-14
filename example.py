@@ -4,9 +4,11 @@ Example script to run Cortex.
 Usage:
     uv run python example.py
 """
+
 import asyncio
 from google.adk.models import LiteLlm
 from cortex import Cortex
+from app.agents.planner.planner_agent import PlannerAgent
 
 # Model configuration
 API_BASE_URL = "http://10.136.3.209:8000/v1"
@@ -18,6 +20,7 @@ async def main():
     model = LiteLlm(
         model=f"openai/{MODEL_NAME}",
         api_base=API_BASE_URL,
+        api_key="EMPTY",
     )
 
     # Create Cortex
