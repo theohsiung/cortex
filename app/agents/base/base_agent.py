@@ -1,11 +1,9 @@
 from dataclasses import dataclass
-from typing import Any, Optional, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from app.task.task_manager import TaskManager
 
-# Lazy imports to avoid google.adk triggering directory creation on import
 if TYPE_CHECKING:
-    from google.adk.agents import LlmAgent
     from google.adk.runners import Runner
     from google.adk.sessions import InMemorySessionService
     from google.genai.types import Content, Part
@@ -20,27 +18,39 @@ class AgentResult:
 
 
 class BaseAgent:
-    """Base class for all agents, wraps Google ADK LlmAgent"""
+    """
+    Base class for all agents, wraps any Google ADK agent.
+
+    Supports: LlmAgent, LoopAgent, SequentialAgent, ParallelAgent, etc.
+
+    Usage:
+        # With LlmAgent
+        from google.adk.agents import LlmAgent
+        llm_agent = LlmAgent(name="my_agent", model=model, tools=[...])
+        base = BaseAgent(agent=llm_agent, tool_functions={...})
+
+        # With LoopAgent
+        from google.adk.agents import LoopAgent
+        loop_agent = LoopAgent(name="loop", sub_agents=[agent1, agent2])
+        base = BaseAgent(agent=loop_agent, tool_functions={...})
+    """
 
     def __init__(
         self,
-        name: str,
-        model: Any,
-        tool_declarations: list,
-        tool_functions: dict,
-        instruction: str,
+        agent: Any,
+        tool_functions: dict = None,
         plan_id: str = None
     ):
-        # Store init params for lazy agent creation
-        self._name = name
-        self._model = model
-        self._tool_declarations = tool_declarations
-        self._instruction = instruction
-        self._agent = None
-        self._session_service = None
+        """
+        Initialize BaseAgent with a pre-built ADK agent.
 
-        # Tool function mapping for execution
-        self.tool_functions = tool_functions
+        Args:
+            agent: Any ADK agent (LlmAgent, LoopAgent, SequentialAgent, etc.)
+            tool_functions: Dict mapping tool names to callable functions
+            plan_id: Optional plan ID for TaskManager integration
+        """
+        self.agent = agent
+        self.tool_functions = tool_functions or {}
 
         # Plan integration
         self.plan_id = plan_id
@@ -49,18 +59,8 @@ class BaseAgent:
         # Event tracking
         self._tool_events: list[dict] = []
 
-    @property
-    def agent(self):
-        """Lazy initialization of ADK LlmAgent"""
-        if self._agent is None:
-            from google.adk.agents import LlmAgent
-            self._agent = LlmAgent(
-                name=self._name,
-                model=self._model,
-                tools=self._tool_declarations,
-                instruction=self._instruction
-            )
-        return self._agent
+        # Session service (lazy init)
+        self._session_service = None
 
     def _get_session_service(self):
         """Lazy initialization of session service"""
@@ -117,7 +117,6 @@ class BaseAgent:
             if event.content and event.content.parts:
                 for part in event.content.parts:
                     if hasattr(part, 'function_call') and part.function_call:
-                        # Has tool call, need to check if responded
                         is_complete = self._has_tool_response(events, part.function_call.name)
 
         return AgentResult(events=events, output=final_output, is_complete=is_complete)

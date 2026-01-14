@@ -10,3 +10,8 @@ dependencies = [
     "ipython>=9.9.0",
     "litellm>=1.80.16",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

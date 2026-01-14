@@ -1,8 +1,11 @@
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from app.agents.base.base_agent import BaseAgent
 from app.agents.executor.prompts import EXECUTOR_SYSTEM_PROMPT
 from app.task.task_manager import TaskManager
 from app.tools.act_toolkit import ActToolkit
+
+if TYPE_CHECKING:
+    from google.adk.agents import LlmAgent
 
 
 class ExecutorAgent(BaseAgent):
@@ -15,12 +18,18 @@ class ExecutorAgent(BaseAgent):
 
         toolkit = ActToolkit(plan)
 
-        super().__init__(
+        # Create LlmAgent for execution
+        from google.adk.agents import LlmAgent
+        agent = LlmAgent(
             name="executor",
             model=model,
-            tool_declarations=toolkit.get_tool_declarations(),
+            tools=toolkit.get_tool_declarations(),
+            instruction=EXECUTOR_SYSTEM_PROMPT
+        )
+
+        super().__init__(
+            agent=agent,
             tool_functions=toolkit.get_tool_functions(),
-            instruction=EXECUTOR_SYSTEM_PROMPT,
             plan_id=plan_id
         )
 

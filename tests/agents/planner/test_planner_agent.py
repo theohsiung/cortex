@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import Mock
-from app.agents.planner.planner_agent import PlannerAgent
 from app.task.task_manager import TaskManager
 from app.task.plan import Plan
+from app.agents.planner.planner_agent import PlannerAgent
 
 
 class TestPlannerAgent:
@@ -46,3 +46,11 @@ class TestPlannerAgent:
         plan = TaskManager.get_plan("plan_1")
         assert plan.title == "Test Plan"
         assert plan.steps == ["Step 1", "Step 2"]
+
+    def test_plan_not_found_raises_error(self):
+        """Should raise ValueError when plan_id not found"""
+        with pytest.raises(ValueError):
+            PlannerAgent(
+                plan_id="nonexistent",
+                model=Mock()
+            )

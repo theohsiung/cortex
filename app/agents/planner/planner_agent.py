@@ -1,8 +1,11 @@
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from app.agents.base.base_agent import BaseAgent
 from app.agents.planner.prompts import PLANNER_SYSTEM_PROMPT
 from app.task.task_manager import TaskManager
 from app.tools.plan_toolkit import PlanToolkit
+
+if TYPE_CHECKING:
+    from google.adk.agents import LlmAgent
 
 
 class PlannerAgent(BaseAgent):
@@ -15,12 +18,18 @@ class PlannerAgent(BaseAgent):
 
         toolkit = PlanToolkit(plan)
 
-        super().__init__(
+        # Create LlmAgent for planning
+        from google.adk.agents import LlmAgent
+        agent = LlmAgent(
             name="planner",
             model=model,
-            tool_declarations=toolkit.get_tool_declarations(),
+            tools=toolkit.get_tool_declarations(),
+            instruction=PLANNER_SYSTEM_PROMPT
+        )
+
+        super().__init__(
+            agent=agent,
             tool_functions=toolkit.get_tool_functions(),
-            instruction=PLANNER_SYSTEM_PROMPT,
             plan_id=plan_id
         )
 

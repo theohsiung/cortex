@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import Mock
-from app.agents.executor.executor_agent import ExecutorAgent
 from app.task.task_manager import TaskManager
 from app.task.plan import Plan
+from app.agents.executor.executor_agent import ExecutorAgent
 
 
 class TestExecutorAgent:
@@ -45,3 +45,11 @@ class TestExecutorAgent:
         plan = TaskManager.get_plan("plan_1")
         assert plan.step_statuses["Step A"] == "completed"
         assert plan.step_notes["Step A"] == "Done"
+
+    def test_plan_not_found_raises_error(self):
+        """Should raise ValueError when plan_id not found"""
+        with pytest.raises(ValueError):
+            ExecutorAgent(
+                plan_id="nonexistent",
+                model=Mock()
+            )
