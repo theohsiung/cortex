@@ -6,6 +6,11 @@ Usage:
 """
 
 import asyncio
+import warnings
+
+# Filter Pydantic warnings
+warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
+
 from google.adk.models import LiteLlm
 from cortex import Cortex
 from app.agents.planner.planner_agent import PlannerAgent
@@ -27,7 +32,7 @@ async def main():
     cortex = Cortex(model=model)
 
     # Execute a task
-    query = "Create a plan to build a simple calculator app"
+    query = "寫一篇短篇兒童小說"
     print(f"Query: {query}\n")
 
     result = await cortex.execute(query)
