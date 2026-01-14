@@ -44,3 +44,33 @@ class TestCortex:
         TaskManager.remove_plan(plan_id)
 
         assert TaskManager.get_plan(plan_id) is None
+
+    def test_init_with_custom_agents(self):
+        """Should accept custom planner and executor agents"""
+        planner = Mock()
+        executor = Mock()
+        cortex = Cortex(planner_agent=planner, executor_agent=executor)
+
+        assert cortex.planner_agent is planner
+        assert cortex.executor_agent is executor
+        assert cortex.model is None
+
+    def test_init_with_model_and_custom_planner(self):
+        """Should accept model with custom planner agent"""
+        model = Mock()
+        planner = Mock()
+        cortex = Cortex(model=model, planner_agent=planner)
+
+        assert cortex.model is model
+        assert cortex.planner_agent is planner
+        assert cortex.executor_agent is None
+
+    def test_init_requires_model_or_planner(self):
+        """Should raise error if no model and no planner_agent"""
+        with pytest.raises(ValueError, match="planner_agent"):
+            Cortex(executor_agent=Mock())
+
+    def test_init_requires_model_or_executor(self):
+        """Should raise error if no model and no executor_agent"""
+        with pytest.raises(ValueError, match="executor_agent"):
+            Cortex(planner_agent=Mock())

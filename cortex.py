@@ -8,10 +8,34 @@ from app.agents.executor.executor_agent import ExecutorAgent
 
 
 class Cortex:
-    """Main orchestrator for the agent framework"""
+    """
+    Main orchestrator for the agent framework.
 
-    def __init__(self, model: Any):
+    Usage:
+        # Default: creates LlmAgent internally
+        cortex = Cortex(model=model)
+
+        # Custom: pass your own agents
+        from google.adk.agents import LoopAgent
+        my_planner = LoopAgent(name="planner", ...)
+        my_executor = LoopAgent(name="executor", ...)
+        cortex = Cortex(planner_agent=my_planner, executor_agent=my_executor)
+    """
+
+    def __init__(
+        self,
+        model: Any = None,
+        planner_agent: Any = None,
+        executor_agent: Any = None
+    ):
+        if model is None and planner_agent is None:
+            raise ValueError("Either 'model' or 'planner_agent' must be provided")
+        if model is None and executor_agent is None:
+            raise ValueError("Either 'model' or 'executor_agent' must be provided")
+
         self.model = model
+        self.planner_agent = planner_agent
+        self.executor_agent = executor_agent
         self.history: list[dict] = []
 
     async def execute(self, query: str) -> str:
@@ -26,11 +50,19 @@ class Cortex:
 
         try:
             # Create plan
-            planner = PlannerAgent(plan_id=plan_id, model=self.model)
+            planner = PlannerAgent(
+                plan_id=plan_id,
+                model=self.model,
+                agent=self.planner_agent
+            )
             await planner.create_plan(query)
 
             # Execute steps
-            executor = ExecutorAgent(plan_id=plan_id, model=self.model)
+            executor = ExecutorAgent(
+                plan_id=plan_id,
+                model=self.model,
+                agent=self.executor_agent
+            )
 
             while True:
                 ready_steps = plan.get_ready_steps()
