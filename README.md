@@ -113,12 +113,28 @@ cortex = Cortex(model=your_llm_model)
 result = await cortex.execute("幫我寫一個計算機程式")
 print(result)
 
-# 進階使用 - 自訂 Agent (LoopAgent, SequentialAgent, etc.)
+# 進階使用 - 自訂 Agent Factory
+# 使用 factory 函數可以讓你的自訂 Agent 自動獲得 toolkit 工具
 from google.adk.agents import LoopAgent
 
-my_planner = LoopAgent(name="planner", ...)
-my_executor = LoopAgent(name="executor", ...)
-cortex = Cortex(planner_agent=my_planner, executor_agent=my_executor)
+def my_planner_factory(tools: list):
+    return LoopAgent(
+        name="planner",
+        model=your_llm_model,
+        tools=tools,  # toolkit 工具會自動注入
+    )
+
+def my_executor_factory(tools: list):
+    return LoopAgent(
+        name="executor",
+        model=your_llm_model,
+        tools=tools,  # toolkit 工具會自動注入
+    )
+
+cortex = Cortex(
+    planner_factory=my_planner_factory,
+    executor_factory=my_executor_factory
+)
 ```
 
 ---
@@ -408,18 +424,18 @@ model = LiteLlm(
 
 ## 測試覆蓋
 
-目前共有 **55 個測試**，涵蓋所有核心功能：
+目前共有 **57 個測試**，涵蓋所有核心功能：
 
-| 模組          | 測試數量 | 說明                               |
-| ------------- | -------- | ---------------------------------- |
-| TaskManager   | 5        | 計畫存取、刪除、執行緒安全         |
-| Plan          | 12       | 建立、更新、狀態追蹤、依賴關係     |
-| PlanToolkit   | 7        | create_plan、update_plan 工具      |
-| ActToolkit    | 7        | mark_step 工具                     |
-| BaseAgent     | 8        | 初始化、工具事件追蹤、Agent 儲存   |
-| PlannerAgent  | 4        | 初始化、工具整合、自訂 Agent       |
-| ExecutorAgent | 4        | 初始化、工具整合、自訂 Agent       |
-| Cortex        | 8        | 初始化、歷史記錄、清理、自訂 Agent |
+| 模組          | 測試數量 | 說明                                     |
+| ------------- | -------- | ---------------------------------------- |
+| TaskManager   | 5        | 計畫存取、刪除、執行緒安全               |
+| Plan          | 12       | 建立、更新、狀態追蹤、依賴關係           |
+| PlanToolkit   | 7        | create_plan、update_plan 工具            |
+| ActToolkit    | 7        | mark_step 工具                           |
+| BaseAgent     | 8        | 初始化、工具事件追蹤、Agent 儲存         |
+| PlannerAgent  | 5        | 初始化、工具整合、agent_factory          |
+| ExecutorAgent | 5        | 初始化、工具整合、agent_factory          |
+| Cortex        | 8        | 初始化、歷史記錄、清理、factory 參數     |
 
 ---
 
