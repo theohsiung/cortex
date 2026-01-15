@@ -1,5 +1,5 @@
 import time
-from typing import Any
+from typing import Any, Callable
 
 from app.task.task_manager import TaskManager
 from app.task.plan import Plan
@@ -15,27 +15,31 @@ class Cortex:
         # Default: creates LlmAgent internally
         cortex = Cortex(model=model)
 
-        # Custom: pass your own agents
-        from google.adk.agents import LoopAgent
-        my_planner = LoopAgent(name="planner", ...)
-        my_executor = LoopAgent(name="executor", ...)
-        cortex = Cortex(planner_agent=my_planner, executor_agent=my_executor)
+        # Custom: pass agent factories
+        def my_planner_factory(tools: list):
+            return LoopAgent(name="planner", tools=tools, ...)
+        def my_executor_factory(tools: list):
+            return LoopAgent(name="executor", tools=tools, ...)
+        cortex = Cortex(
+            planner_factory=my_planner_factory,
+            executor_factory=my_executor_factory
+        )
     """
 
     def __init__(
         self,
         model: Any = None,
-        planner_agent: Any = None,
-        executor_agent: Any = None
+        planner_factory: Callable[[list], Any] = None,
+        executor_factory: Callable[[list], Any] = None
     ):
-        if model is None and planner_agent is None:
-            raise ValueError("Either 'model' or 'planner_agent' must be provided")
-        if model is None and executor_agent is None:
-            raise ValueError("Either 'model' or 'executor_agent' must be provided")
+        if model is None and planner_factory is None:
+            raise ValueError("Either 'model' or 'planner_factory' must be provided")
+        if model is None and executor_factory is None:
+            raise ValueError("Either 'model' or 'executor_factory' must be provided")
 
         self.model = model
-        self.planner_agent = planner_agent
-        self.executor_agent = executor_agent
+        self.planner_factory = planner_factory
+        self.executor_factory = executor_factory
         self.history: list[dict] = []
 
     async def execute(self, query: str) -> str:
@@ -53,7 +57,7 @@ class Cortex:
             planner = PlannerAgent(
                 plan_id=plan_id,
                 model=self.model,
-                agent=self.planner_agent
+                agent_factory=self.planner_factory
             )
             await planner.create_plan(query)
 
@@ -61,7 +65,7 @@ class Cortex:
             executor = ExecutorAgent(
                 plan_id=plan_id,
                 model=self.model,
-                agent=self.executor_agent
+                agent_factory=self.executor_factory
             )
 
             while True:

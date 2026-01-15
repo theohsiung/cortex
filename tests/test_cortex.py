@@ -45,32 +45,32 @@ class TestCortex:
 
         assert TaskManager.get_plan(plan_id) is None
 
-    def test_init_with_custom_agents(self):
-        """Should accept custom planner and executor agents"""
-        planner = Mock()
-        executor = Mock()
-        cortex = Cortex(planner_agent=planner, executor_agent=executor)
+    def test_init_with_custom_factories(self):
+        """Should accept custom planner and executor factories"""
+        planner_factory = Mock()
+        executor_factory = Mock()
+        cortex = Cortex(planner_factory=planner_factory, executor_factory=executor_factory)
 
-        assert cortex.planner_agent is planner
-        assert cortex.executor_agent is executor
+        assert cortex.planner_factory is planner_factory
+        assert cortex.executor_factory is executor_factory
         assert cortex.model is None
 
-    def test_init_with_model_and_custom_planner(self):
-        """Should accept model with custom planner agent"""
+    def test_init_with_model_and_custom_planner_factory(self):
+        """Should accept model with custom planner factory"""
         model = Mock()
-        planner = Mock()
-        cortex = Cortex(model=model, planner_agent=planner)
+        planner_factory = Mock()
+        cortex = Cortex(model=model, planner_factory=planner_factory)
 
         assert cortex.model is model
-        assert cortex.planner_agent is planner
-        assert cortex.executor_agent is None
+        assert cortex.planner_factory is planner_factory
+        assert cortex.executor_factory is None
 
-    def test_init_requires_model_or_planner(self):
-        """Should raise error if no model and no planner_agent"""
-        with pytest.raises(ValueError, match="planner_agent"):
-            Cortex(executor_agent=Mock())
+    def test_init_requires_model_or_planner_factory(self):
+        """Should raise error if no model and no planner_factory"""
+        with pytest.raises(ValueError, match="planner_factory"):
+            Cortex(executor_factory=Mock())
 
-    def test_init_requires_model_or_executor(self):
-        """Should raise error if no model and no executor_agent"""
-        with pytest.raises(ValueError, match="executor_agent"):
-            Cortex(planner_agent=Mock())
+    def test_init_requires_model_or_executor_factory(self):
+        """Should raise error if no model and no executor_factory"""
+        with pytest.raises(ValueError, match="executor_factory"):
+            Cortex(planner_factory=Mock())
