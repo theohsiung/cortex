@@ -1,4 +1,4 @@
-from typing import Any, TYPE_CHECKING
+from typing import Any, Callable, TYPE_CHECKING
 from app.agents.base.base_agent import BaseAgent
 from app.agents.planner.prompts import PLANNER_SYSTEM_PROMPT
 from app.task.task_manager import TaskManager
@@ -16,39 +16,47 @@ class PlannerAgent(BaseAgent):
         # Default: creates LlmAgent internally
         planner = PlannerAgent(plan_id="p1", model=model)
 
-        # Custom: pass your own agent
-        from google.adk.agents import LoopAgent
-        my_agent = LoopAgent(name="planner", ...)
-        planner = PlannerAgent(plan_id="p1", agent=my_agent)
+        # Custom: pass agent_factory that receives tools
+        def my_factory(tools: list):
+            return LoopAgent(name="planner", tools=tools + my_extra_tools, ...)
+        planner = PlannerAgent(plan_id="p1", agent_factory=my_factory)
     """
 
-    def __init__(self, plan_id: str, model: Any = None, agent: Any = None):
+    def __init__(
+        self,
+        plan_id: str,
+        model: Any = None,
+        agent_factory: Callable[[list], Any] = None
+    ):
         """
         Initialize PlannerAgent.
 
         Args:
             plan_id: ID of the plan in TaskManager
-            model: LLM model (required if agent is None)
-            agent: Optional pre-built ADK agent (LlmAgent, LoopAgent, etc.)
+            model: LLM model (required if agent_factory is None)
+            agent_factory: Optional factory function that receives tools and returns an agent
         """
         plan = TaskManager.get_plan(plan_id)
         if plan is None:
             raise ValueError(f"Plan not found: {plan_id}")
 
         toolkit = PlanToolkit(plan)
+        tools = list(toolkit.get_tool_functions().values())
 
-        # Use provided agent or create default LlmAgent
-        if agent is None:
-            if model is None:
-                raise ValueError("Either 'model' or 'agent' must be provided")
+        # Use factory or create default LlmAgent
+        if agent_factory is not None:
+            agent = agent_factory(tools)
+        elif model is not None:
             from google.adk.agents import LlmAgent
 
             agent = LlmAgent(
                 name="planner",
                 model=model,
-                tools=list(toolkit.get_tool_functions().values()),
+                tools=tools,
                 instruction=PLANNER_SYSTEM_PROMPT,
             )
+        else:
+            raise ValueError("Either 'model' or 'agent_factory' must be provided")
 
         super().__init__(
             agent=agent, tool_functions=toolkit.get_tool_functions(), plan_id=plan_id

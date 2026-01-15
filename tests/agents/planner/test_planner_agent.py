@@ -54,3 +54,19 @@ class TestPlannerAgent:
                 plan_id="nonexistent",
                 model=Mock()
             )
+
+    def test_agent_factory_receives_tools(self):
+        """agent_factory should receive toolkit tools"""
+        received_tools = []
+
+        def my_factory(tools: list):
+            received_tools.extend(tools)
+            return Mock()
+
+        PlannerAgent(
+            plan_id="plan_1",
+            agent_factory=my_factory
+        )
+
+        # Factory should receive create_plan and update_plan tools
+        assert len(received_tools) == 2
