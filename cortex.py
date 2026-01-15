@@ -16,12 +16,12 @@ class Cortex:
         # Default: creates LlmAgent internally
         cortex = Cortex(model=model)
 
-        # With sandbox (Docker-isolated tools):
+        # With sandbox tools:
         cortex = Cortex(
             model=model,
-            workspace="./my-project",
-            enable_filesystem=True,
-            enable_shell=True,
+            user_id="alice",          # Optional, auto-generated if not provided
+            enable_filesystem=True,   # Local filesystem via @anthropic/mcp-filesystem
+            enable_shell=True,        # Shell execution in Docker container
         )
 
         # Custom: pass agent factories
@@ -40,7 +40,7 @@ class Cortex:
         model: Any = None,
         planner_factory: Callable[[list], Any] = None,
         executor_factory: Callable[[list], Any] = None,
-        workspace: str = None,
+        user_id: str = None,
         enable_filesystem: bool = False,
         enable_shell: bool = False,
         mcp_servers: list[dict] = None,
@@ -55,10 +55,10 @@ class Cortex:
         self.executor_factory = executor_factory
         self.history: list[dict] = []
 
-        # Create sandbox manager if workspace provided
-        if workspace:
+        # Create sandbox manager if any sandbox feature is enabled
+        if enable_filesystem or enable_shell or mcp_servers:
             self.sandbox = SandboxManager(
-                workspace=workspace,
+                user_id=user_id,
                 enable_filesystem=enable_filesystem,
                 enable_shell=enable_shell,
                 mcp_servers=mcp_servers,
