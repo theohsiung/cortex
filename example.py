@@ -13,7 +13,6 @@ warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
 
 from google.adk.models import LiteLlm
 from cortex import Cortex
-from app.agents.planner.planner_agent import PlannerAgent
 
 # Model configuration
 API_BASE_URL = "http://10.136.3.209:8000/v1"
@@ -28,8 +27,21 @@ async def main():
         api_key="EMPTY",
     )
 
-    # Create Cortex
+    # Create Cortex (default mode)
     cortex = Cortex(model=model)
+
+    # --- Custom agent factory example ---
+    # from google.adk.agents import LoopAgent
+    #
+    # def my_planner_factory(tools: list):
+    #     return LoopAgent(
+    #         name="planner",
+    #         model=model,
+    #         tools=tools,  # toolkit tools are injected here
+    #     )
+    #
+    # cortex = Cortex(planner_factory=my_planner_factory)
+    # ------------------------------------
 
     # Execute a task
     query = "寫一篇短篇兒童小說"
