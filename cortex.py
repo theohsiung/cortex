@@ -5,6 +5,7 @@ from app.task.task_manager import TaskManager
 from app.task.plan import Plan
 from app.agents.planner.planner_agent import PlannerAgent
 from app.agents.executor.executor_agent import ExecutorAgent
+from app.sandbox.sandbox_manager import SandboxManager
 
 
 class Cortex:
@@ -14,6 +15,14 @@ class Cortex:
     Usage:
         # Default: creates LlmAgent internally
         cortex = Cortex(model=model)
+
+        # With sandbox (Docker-isolated tools):
+        cortex = Cortex(
+            model=model,
+            workspace="./my-project",
+            enable_filesystem=True,
+            enable_shell=True,
+        )
 
         # Custom: pass agent factories
         def my_planner_factory(tools: list):
@@ -30,7 +39,11 @@ class Cortex:
         self,
         model: Any = None,
         planner_factory: Callable[[list], Any] = None,
-        executor_factory: Callable[[list], Any] = None
+        executor_factory: Callable[[list], Any] = None,
+        workspace: str = None,
+        enable_filesystem: bool = False,
+        enable_shell: bool = False,
+        mcp_servers: list[dict] = None,
     ):
         if model is None and planner_factory is None:
             raise ValueError("Either 'model' or 'planner_factory' must be provided")
@@ -41,6 +54,17 @@ class Cortex:
         self.planner_factory = planner_factory
         self.executor_factory = executor_factory
         self.history: list[dict] = []
+
+        # Create sandbox manager if workspace provided
+        if workspace:
+            self.sandbox = SandboxManager(
+                workspace=workspace,
+                enable_filesystem=enable_filesystem,
+                enable_shell=enable_shell,
+                mcp_servers=mcp_servers,
+            )
+        else:
+            self.sandbox = None
 
     async def execute(self, query: str) -> str:
         """Execute a task with planning and execution"""
@@ -53,6 +77,10 @@ class Cortex:
         TaskManager.set_plan(plan_id, plan)
 
         try:
+            # Start sandbox if configured
+            if self.sandbox:
+                await self.sandbox.start()
+
             # Create plan
             planner = PlannerAgent(
                 plan_id=plan_id,
@@ -88,6 +116,8 @@ class Cortex:
         finally:
             # Cleanup
             TaskManager.remove_plan(plan_id)
+            if self.sandbox:
+                await self.sandbox.stop()
 
     def _generate_summary(self, plan: Plan) -> str:
         """Generate execution summary"""

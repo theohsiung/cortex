@@ -1,7 +1,8 @@
 import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from cortex import Cortex
 from app.task.task_manager import TaskManager
+from pathlib import Path
 
 
 class TestCortex:
@@ -74,3 +75,37 @@ class TestCortex:
         """Should raise error if no model and no executor_factory"""
         with pytest.raises(ValueError, match="executor_factory"):
             Cortex(planner_factory=Mock())
+
+
+class TestCortexSandbox:
+    def setup_method(self):
+        TaskManager._plans.clear()
+
+    def test_init_without_sandbox(self):
+        """Should work without sandbox (no workspace)"""
+        cortex = Cortex(model=Mock())
+        assert cortex.sandbox is None
+
+    def test_init_with_workspace_creates_sandbox(self):
+        """Should create SandboxManager when workspace provided"""
+        cortex = Cortex(
+            model=Mock(),
+            workspace="/tmp/test",
+            enable_filesystem=True,
+        )
+        assert cortex.sandbox is not None
+        assert "/tmp/test" in cortex.sandbox.workspace  # resolved path
+        assert cortex.sandbox.enable_filesystem is True
+
+    def test_init_with_all_sandbox_options(self):
+        """Should pass all options to SandboxManager"""
+        mcp_servers = [{"url": "https://example.com/mcp"}]
+        cortex = Cortex(
+            model=Mock(),
+            workspace="/tmp/test",
+            enable_filesystem=True,
+            enable_shell=True,
+            mcp_servers=mcp_servers,
+        )
+        assert cortex.sandbox.enable_shell is True
+        assert cortex.sandbox.mcp_servers == mcp_servers
