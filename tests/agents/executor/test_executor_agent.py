@@ -69,3 +69,22 @@ class TestExecutorAgent:
 
         # Factory should receive mark_step tool
         assert len(received_tools) >= 1
+
+    def test_extra_tools_included(self):
+        """extra_tools should be included in agent tools"""
+        extra_tool = Mock(name="extra_tool")
+        received_tools = []
+
+        def my_factory(tools: list):
+            received_tools.extend(tools)
+            return Mock()
+
+        ExecutorAgent(
+            plan_id="plan_1",
+            agent_factory=my_factory,
+            extra_tools=[extra_tool],
+        )
+
+        assert extra_tool in received_tools
+        # Should have 1 toolkit tool (mark_step) + 1 extra tool
+        assert len(received_tools) == 2

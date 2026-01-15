@@ -20,13 +20,17 @@ class PlannerAgent(BaseAgent):
         def my_factory(tools: list):
             return LoopAgent(name="planner", tools=tools + my_extra_tools, ...)
         planner = PlannerAgent(plan_id="p1", agent_factory=my_factory)
+
+        # With sandbox tools:
+        planner = PlannerAgent(plan_id="p1", model=model, extra_tools=[fs_tool])
     """
 
     def __init__(
         self,
         plan_id: str,
         model: Any = None,
-        agent_factory: Callable[[list], Any] = None
+        agent_factory: Callable[[list], Any] = None,
+        extra_tools: list = None,
     ):
         """
         Initialize PlannerAgent.
@@ -35,6 +39,7 @@ class PlannerAgent(BaseAgent):
             plan_id: ID of the plan in TaskManager
             model: LLM model (required if agent_factory is None)
             agent_factory: Optional factory function that receives tools and returns an agent
+            extra_tools: Additional tools (e.g., from sandbox) to include
         """
         plan = TaskManager.get_plan(plan_id)
         if plan is None:
@@ -42,6 +47,10 @@ class PlannerAgent(BaseAgent):
 
         toolkit = PlanToolkit(plan)
         tools = list(toolkit.get_tool_functions().values())
+
+        # Add extra tools (e.g., sandbox tools)
+        if extra_tools:
+            tools.extend(extra_tools)
 
         # Use factory or create default LlmAgent
         if agent_factory is not None:

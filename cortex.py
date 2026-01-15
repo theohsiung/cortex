@@ -81,11 +81,16 @@ class Cortex:
             if self.sandbox:
                 await self.sandbox.start()
 
+            # Get sandbox tools
+            planner_sandbox_tools = self.sandbox.get_planner_tools() if self.sandbox else []
+            executor_sandbox_tools = self.sandbox.get_executor_tools() if self.sandbox else []
+
             # Create plan
             planner = PlannerAgent(
                 plan_id=plan_id,
                 model=self.model,
-                agent_factory=self.planner_factory
+                agent_factory=self.planner_factory,
+                extra_tools=planner_sandbox_tools,
             )
             await planner.create_plan(query)
 
@@ -93,7 +98,8 @@ class Cortex:
             executor = ExecutorAgent(
                 plan_id=plan_id,
                 model=self.model,
-                agent_factory=self.executor_factory
+                agent_factory=self.executor_factory,
+                extra_tools=executor_sandbox_tools,
             )
 
             while True:
