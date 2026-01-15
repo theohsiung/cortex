@@ -77,6 +77,12 @@ cortex/
 │   │   └── executor/      # 執行 Agent
 │   │       ├── executor_agent.py # ExecutorAgent - 負責執行
 │   │       └── prompts.py       # 執行用的提示詞
+│   ├── sandbox/           # Docker 沙盒環境
+│   │   ├── sandbox_manager.py   # SandboxManager - 管理 Docker 容器
+│   │   ├── Dockerfile           # 沙盒 Docker 映像檔
+│   │   └── mcp_servers/         # MCP 伺服器
+│   │       ├── filesystem_server.py # 檔案系統工具
+│   │       └── shell_server.py      # Shell 執行工具
 │   ├── task/              # 任務管理
 │   │   ├── plan.py        # Plan 類別 - 儲存執行計畫
 │   │   └── task_manager.py # TaskManager - 全域計畫管理器
@@ -112,6 +118,14 @@ from cortex import Cortex
 cortex = Cortex(model=your_llm_model)
 result = await cortex.execute("幫我寫一個計算機程式")
 print(result)
+
+# 使用 Sandbox 模式 - Docker 隔離執行
+cortex = Cortex(
+    model=your_llm_model,
+    workspace="./my-project",    # 掛載到 Docker 的目錄
+    enable_filesystem=True,      # 啟用檔案系統工具
+    enable_shell=True,           # 啟用 Shell 執行工具
+)
 
 # 進階使用 - 自訂 Agent Factory
 # 使用 factory 函數可以讓你的自訂 Agent 自動獲得 toolkit 工具
@@ -277,6 +291,58 @@ ExecutorAgent 執行計畫 ← 從 TaskManager 取出
 
 ---
 
+### 8. SandboxManager (`app/sandbox/sandbox_manager.py`)
+
+**這是什麼？** 管理 Docker 容器和 MCP 工具的模組，讓 Agent 能夠在隔離環境中操作檔案和執行指令。
+
+**它做什麼？**
+
+- 啟動/停止 Docker 容器
+- 建立 MCP (Model Context Protocol) 工具連線
+- 將工作目錄掛載到容器中
+- 提供檔案系統和 Shell 工具給 Agent 使用
+
+**MCP 工具說明：**
+
+| 工具類型 | 提供的功能 | 使用者 |
+|---------|-----------|--------|
+| Filesystem (唯讀) | `read_file`, `list_directory`, `get_file_info` | PlannerAgent |
+| Filesystem (完整) | 讀寫檔案、建立/刪除目錄 | ExecutorAgent |
+| Shell | `run_command`, `run_python` | ExecutorAgent |
+| 使用者自訂 MCP | 依設定而定 | ExecutorAgent |
+
+**使用範例：**
+
+```python
+from cortex import Cortex
+
+# 基本 Sandbox 模式
+cortex = Cortex(
+    model=model,
+    workspace="./my-project",    # 掛載的目錄
+    enable_filesystem=True,      # 啟用檔案系統工具
+    enable_shell=True,           # 啟用 Shell 工具
+)
+
+# 加入自訂 MCP 伺服器
+cortex = Cortex(
+    model=model,
+    workspace="./my-project",
+    enable_filesystem=True,
+    enable_shell=True,
+    mcp_servers=[
+        # 遠端 MCP 伺服器 (SSE)
+        {"url": "https://api.example.com/mcp", "headers": {"Authorization": "Bearer xxx"}},
+        # 本地 MCP 伺服器 (Stdio)
+        {"command": "npx", "args": ["-y", "@mcp/server-github"]},
+    ],
+)
+```
+
+**注意：** 使用 Sandbox 功能需要安裝並啟動 Docker。
+
+---
+
 ## 執行流程圖
 
 ```
@@ -419,23 +485,27 @@ model = LiteLlm(
 | Toolkit     | Toolkit              | 工具包，提供 Agent 可呼叫的功能        |
 | Dependency  | Dependency           | 依賴關係，某步驟需要等其他步驟完成     |
 | Thread-safe | Thread-safe          | 多執行緒安全，多個程式同時存取不會出錯 |
+| MCP         | Model Context Protocol | Anthropic 定義的 LLM 工具通訊協定    |
+| Sandbox     | Sandbox              | 沙盒環境，隔離執行不影響主系統         |
+| Docker      | Docker               | 容器化技術，用於建立隔離的執行環境     |
 
 ---
 
 ## 測試覆蓋
 
-目前共有 **57 個測試**，涵蓋所有核心功能：
+目前共有 **78 個測試**，涵蓋所有核心功能：
 
-| 模組          | 測試數量 | 說明                                     |
-| ------------- | -------- | ---------------------------------------- |
-| TaskManager   | 5        | 計畫存取、刪除、執行緒安全               |
-| Plan          | 12       | 建立、更新、狀態追蹤、依賴關係           |
-| PlanToolkit   | 7        | create_plan、update_plan 工具            |
-| ActToolkit    | 7        | mark_step 工具                           |
-| BaseAgent     | 8        | 初始化、工具事件追蹤、Agent 儲存         |
-| PlannerAgent  | 5        | 初始化、工具整合、agent_factory          |
-| ExecutorAgent | 5        | 初始化、工具整合、agent_factory          |
-| Cortex        | 8        | 初始化、歷史記錄、清理、factory 參數     |
+| 模組           | 測試數量 | 說明                                     |
+| -------------- | -------- | ---------------------------------------- |
+| TaskManager    | 5        | 計畫存取、刪除、執行緒安全               |
+| Plan           | 12       | 建立、更新、狀態追蹤、依賴關係           |
+| PlanToolkit    | 7        | create_plan、update_plan 工具            |
+| ActToolkit     | 7        | mark_step 工具                           |
+| BaseAgent      | 8        | 初始化、工具事件追蹤、Agent 儲存         |
+| PlannerAgent   | 6        | 初始化、工具整合、agent_factory、extra_tools |
+| ExecutorAgent  | 6        | 初始化、工具整合、agent_factory、extra_tools |
+| Cortex         | 11       | 初始化、歷史記錄、清理、factory、sandbox |
+| SandboxManager | 16       | Docker 生命週期、MCP 工具、使用者 MCP    |
 
 ---
 
