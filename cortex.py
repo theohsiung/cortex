@@ -30,7 +30,7 @@ class Cortex:
         self,
         model: Any = None,
         planner_factory: Callable[[list], Any] = None,
-        executor_factory: Callable[[list], Any] = None
+        executor_factory: Callable[[list], Any] = None,
     ):
         if model is None and planner_factory is None:
             raise ValueError("Either 'model' or 'planner_factory' must be provided")
@@ -55,17 +55,13 @@ class Cortex:
         try:
             # Create plan
             planner = PlannerAgent(
-                plan_id=plan_id,
-                model=self.model,
-                agent_factory=self.planner_factory
+                plan_id=plan_id, model=self.model, agent_factory=self.planner_factory
             )
             await planner.create_plan(query)
 
             # Execute steps
             executor = ExecutorAgent(
-                plan_id=plan_id,
-                model=self.model,
-                agent_factory=self.executor_factory
+                plan_id=plan_id, model=self.model, agent_factory=self.executor_factory
             )
 
             while True:
