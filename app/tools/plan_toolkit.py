@@ -26,10 +26,10 @@ class PlanToolkit:
                 },
                 "dependencies": {
                     "type": "object",
-                    "description": 'Step dependencies. Format: {"1": [0]} means step 1 depends on step 0',
+                    "description": 'Step dependencies as DAG. Format: {"step_index": [list of prerequisite step indices]}. Example: {"0": [], "1": [0], "2": [0], "3": [1, 2]} means step 0 has no deps, step 1 and 2 depend on step 0, step 3 depends on both 1 and 2. Every step index must be included as a key.',
                 },
             },
-            "required": ["title", "steps"],
+            "required": ["title", "steps", "dependencies"],
         },
     )
 
@@ -47,7 +47,7 @@ class PlanToolkit:
                 },
                 "dependencies": {
                     "type": "object",
-                    "description": "New dependencies (optional)",
+                    "description": 'New dependencies as DAG. Format: {"step_index": [list of prerequisite step indices]}. Every step index must be included as a key.',
                 },
             },
         },
@@ -86,6 +86,26 @@ class PlanToolkit:
         """Return schema list for LlmAgent"""
         return [self.CREATE_PLAN_SCHEMA, self.UPDATE_PLAN_SCHEMA]
 
-    def get_tool_functions(self) -> dict:
-        """Return function mapping for tool execution"""
-        return {"create_plan": self.create_plan, "update_plan": self.update_plan}
+    def get_tool_functions(self) -> list:
+        """Return list of tool functions for LlmAgent.
+
+        Includes aliased versions with common LLM hallucinated suffixes
+        to handle models that output malformed tool names.
+        """
+        tools = [self.create_plan, self.update_plan]
+
+        # Add aliased tools for common hallucinated suffixes
+        hallucinated_suffixes = ["<|channel|>json", "<|end|>", "<|tool|>"]
+        for suffix in hallucinated_suffixes:
+            tools.append(self._create_aliased_tool(self.create_plan, f"create_plan{suffix}"))
+            tools.append(self._create_aliased_tool(self.update_plan, f"update_plan{suffix}"))
+
+        return tools
+
+    def _create_aliased_tool(self, func, alias_name: str):
+        """Create a wrapper function with a custom __name__ for ADK registration."""
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+        wrapper.__name__ = alias_name
+        wrapper.__doc__ = func.__doc__
+        return wrapper

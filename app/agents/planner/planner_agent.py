@@ -46,7 +46,7 @@ class PlannerAgent(BaseAgent):
             raise ValueError(f"Plan not found: {plan_id}")
 
         toolkit = PlanToolkit(plan)
-        tools = list(toolkit.get_tool_functions().values())
+        tools = toolkit.get_tool_functions()
 
         # Add extra tools (e.g., sandbox tools)
         if extra_tools:
@@ -67,8 +67,13 @@ class PlannerAgent(BaseAgent):
         else:
             raise ValueError("Either 'model' or 'agent_factory' must be provided")
 
+        # Convert tools list to dict for BaseAgent (only core tools, not aliases)
+        tool_functions = {
+            "create_plan": toolkit.create_plan,
+            "update_plan": toolkit.update_plan,
+        }
         super().__init__(
-            agent=agent, tool_functions=toolkit.get_tool_functions(), plan_id=plan_id
+            agent=agent, tool_functions=tool_functions, plan_id=plan_id
         )
 
     async def create_plan(self, task: str) -> str:
