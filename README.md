@@ -239,6 +239,8 @@ blocked      → 卡住了，無法繼續 ✗
 - `step_statuses`: 每個步驟的狀態
 - `step_notes`: 每個步驟的備註
 - `dependencies`: 步驟之間的依賴關係
+- `step_tool_history`: 每個步驟呼叫的工具歷史記錄
+- `step_files`: 每個步驟產生的檔案路徑
 
 **依賴關係是什麼？**
 
@@ -250,6 +252,28 @@ blocked      → 卡住了，無法繼續 ✗
 
 dependencies = {1: [0], 2: [1]}
 意思是: 步驟 1 依賴步驟 0，步驟 2 依賴步驟 1
+```
+
+**工具歷史記錄：**
+
+Plan 會自動記錄每個步驟執行時呼叫的工具和產生的檔案：
+
+```python
+plan.format()
+# 輸出:
+# Plan: Build Data Pipeline
+# ========================================
+# Progress: 2/3 (66.7%)
+#
+# Steps:
+#   0: [✓] Load CSV data
+#       Notes: Loaded 1000 rows
+#       Tools: read_file (1)
+#   1: [✓] Process and save results
+#       Notes: Saved processed data
+#       Tools: run_python (1)
+#       Files: /workspace/output.csv
+#   2: [ ] Generate report (depends on: [1])
 ```
 
 ---
@@ -493,12 +517,12 @@ model = LiteLlm(
 
 ## 測試覆蓋
 
-目前共有 **78 個測試**，涵蓋所有核心功能：
+目前共有 **93 個測試**，涵蓋所有核心功能：
 
 | 模組           | 測試數量 | 說明                                     |
 | -------------- | -------- | ---------------------------------------- |
 | TaskManager    | 5        | 計畫存取、刪除、執行緒安全               |
-| Plan           | 12       | 建立、更新、狀態追蹤、依賴關係           |
+| Plan           | 20       | 建立、更新、狀態追蹤、依賴關係、工具歷史 |
 | PlanToolkit    | 7        | create_plan、update_plan 工具            |
 | ActToolkit     | 7        | mark_step 工具                           |
 | BaseAgent      | 8        | 初始化、工具事件追蹤、Agent 儲存         |
