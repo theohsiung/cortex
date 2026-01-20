@@ -27,8 +27,7 @@ DEFAULT_TIMEOUT = 300
 mcp = FastMCP("Shell Server")
 
 
-@mcp.tool()
-async def run_command(
+async def _run_command_impl(
     command: str,
     working_dir: str = ".",
     timeout: int = DEFAULT_TIMEOUT,
@@ -113,6 +112,26 @@ async def run_command(
 
 
 @mcp.tool()
+async def run_command(
+    command: str,
+    working_dir: str = ".",
+    timeout: int = DEFAULT_TIMEOUT,
+) -> dict:
+    """
+    Execute a shell command.
+
+    Args:
+        command: The command to execute
+        working_dir: Working directory (relative to workspace, default: workspace root)
+        timeout: Command timeout in seconds (default: 300)
+
+    Returns:
+        Dictionary with exit_code, stdout, stderr
+    """
+    return await _run_command_impl(command, working_dir, timeout)
+
+
+@mcp.tool()
 async def run_python(
     code: str,
     timeout: int = DEFAULT_TIMEOUT,
@@ -140,7 +159,7 @@ async def run_python(
         script_path = f.name
 
     try:
-        result = await run_command(
+        result = await _run_command_impl(
             f"python {shlex.quote(script_path)}",
             timeout=timeout
         )
