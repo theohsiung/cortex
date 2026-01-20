@@ -1,7 +1,8 @@
 import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from cortex import Cortex
 from app.task.task_manager import TaskManager
+from pathlib import Path
 
 
 class TestCortex:
@@ -74,3 +75,52 @@ class TestCortex:
         """Should raise error if no model and no executor_factory"""
         with pytest.raises(ValueError, match="executor_factory"):
             Cortex(planner_factory=Mock())
+
+
+class TestCortexSandbox:
+    def setup_method(self):
+        TaskManager._plans.clear()
+
+    def test_init_without_sandbox(self):
+        """Should work without sandbox (no features enabled)"""
+        cortex = Cortex(model=Mock())
+        assert cortex.sandbox is None
+
+    def test_init_with_filesystem_creates_sandbox(self):
+        """Should create SandboxManager when filesystem enabled"""
+        cortex = Cortex(
+            model=Mock(),
+            enable_filesystem=True,
+        )
+        assert cortex.sandbox is not None
+        assert cortex.sandbox.enable_filesystem is True
+
+    def test_init_with_user_id(self):
+        """Should pass user_id to SandboxManager"""
+        cortex = Cortex(
+            model=Mock(),
+            user_id="alice",
+            enable_filesystem=True,
+        )
+        assert cortex.sandbox.user_id == "alice"
+
+    def test_init_auto_generates_user_id(self):
+        """Should auto-generate user_id if not provided"""
+        cortex = Cortex(
+            model=Mock(),
+            enable_filesystem=True,
+        )
+        assert cortex.sandbox.user_id.startswith("auto-")
+
+    def test_init_with_all_sandbox_options(self):
+        """Should pass all options to SandboxManager"""
+        mcp_servers = [{"url": "https://example.com/mcp"}]
+        cortex = Cortex(
+            model=Mock(),
+            user_id="test",
+            enable_filesystem=True,
+            enable_shell=True,
+            mcp_servers=mcp_servers,
+        )
+        assert cortex.sandbox.enable_shell is True
+        assert cortex.sandbox.mcp_servers == mcp_servers

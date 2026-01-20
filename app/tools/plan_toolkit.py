@@ -57,11 +57,20 @@ class PlanToolkit:
         self, title: str, steps: list[str], dependencies: dict[int, list[int]] = None
     ) -> str:
         """Create a new plan with title, steps, and optional dependencies"""
+        fallback_used = False
         if dependencies is None and len(steps) > 1:
             dependencies = {i: [i - 1] for i in range(1, len(steps))}
+            fallback_used = True
+            print(
+                f"\033[33m[PlanToolkit] Warning: No dependencies provided. "
+                f"Using sequential fallback: {dependencies}\033[0m"
+            )
 
         self.plan.update(title=title, steps=steps, dependencies=dependencies)
-        return f"Plan created:\n{self.plan.format()}"
+        result = f"Plan created:\n{self.plan.format()}"
+        if fallback_used:
+            result += "\n\nNote: Dependencies were auto-generated as sequential. Consider providing explicit dependencies for parallel execution."
+        return result
 
     def update_plan(
         self,

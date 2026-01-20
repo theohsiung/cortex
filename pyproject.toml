@@ -5,10 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "docker>=7.1.0",
+    "fastmcp>=2.14.0",
     "google-adk>=1.22.1",
     "google-genai>=1.57.0",
     "ipython>=9.9.0",
     "litellm>=1.80.16",
+    "mcp>=1.0.0",
 ]
 
 [dependency-groups]

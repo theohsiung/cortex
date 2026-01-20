@@ -70,3 +70,22 @@ class TestPlannerAgent:
 
         # Factory should receive create_plan and update_plan tools
         assert len(received_tools) == 2
+
+    def test_extra_tools_included(self):
+        """extra_tools should be included in agent tools"""
+        extra_tool = Mock(name="extra_tool")
+        received_tools = []
+
+        def my_factory(tools: list):
+            received_tools.extend(tools)
+            return Mock()
+
+        PlannerAgent(
+            plan_id="plan_1",
+            agent_factory=my_factory,
+            extra_tools=[extra_tool],
+        )
+
+        assert extra_tool in received_tools
+        # Should have 2 toolkit tools + 1 extra tool
+        assert len(received_tools) == 3

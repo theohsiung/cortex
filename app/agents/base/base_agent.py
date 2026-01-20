@@ -1,4 +1,6 @@
+import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, TYPE_CHECKING
 
 from app.task.task_manager import TaskManager
@@ -58,6 +60,10 @@ class BaseAgent:
 
         # Event tracking
         self._tool_events: list[dict] = []
+
+        # Step tracking for tool history
+        self._current_step_index: int | None = None
+        self._pending_calls: dict[str, dict] = {}  # call_id -> {tool, args, timestamp}
 
         # Session service (lazy init)
         self._session_service = None
@@ -128,16 +134,26 @@ class BaseAgent:
 
         for part in event.content.parts:
             if hasattr(part, 'function_call') and part.function_call:
+                call = part.function_call
+                call_id = f"{call.name}_{len(self._pending_calls)}"
+                self._pending_calls[call_id] = {
+                    "tool": call.name,
+                    "args": dict(call.args) if call.args else {},
+                    "timestamp": datetime.now().isoformat()
+                }
                 self._track_tool_event({
                     "type": "call",
-                    "name": part.function_call.name,
-                    "args": part.function_call.args
+                    "name": call.name,
+                    "args": call.args
                 })
             elif hasattr(part, 'function_response') and part.function_response:
+                resp = part.function_response
                 self._track_tool_event({
                     "type": "response",
-                    "name": part.function_response.name
+                    "name": resp.name
                 })
+                # Record to plan if step is active
+                self._record_tool_to_plan(resp.name, resp.response)
 
     def _has_tool_response(self, events: list, tool_name: str) -> bool:
         """Check if tool call has a response"""
@@ -160,6 +176,64 @@ class BaseAgent:
     def _track_tool_event(self, event: dict) -> None:
         """Track tool call/response event"""
         self._tool_events.append(event)
+
+    def _record_tool_to_plan(self, tool_name: str, result: Any) -> None:
+        """Record tool call to plan's step_tool_history"""
+        if self.plan is None or self._current_step_index is None:
+            return
+
+        # Find matching pending call
+        matching_call = None
+        matching_id = None
+        for call_id, call_info in self._pending_calls.items():
+            if call_info["tool"] == tool_name:
+                matching_call = call_info
+                matching_id = call_id
+                break
+
+        if matching_call is None:
+            return
+
+        # Record to plan
+        self.plan.add_tool_call(
+            step_index=self._current_step_index,
+            tool=matching_call["tool"],
+            args=matching_call["args"],
+            result=result,
+            timestamp=matching_call["timestamp"]
+        )
+
+        # Extract and record files
+        files = self._extract_files(tool_name, matching_call["args"], result)
+        for file_path in files:
+            self.plan.add_file(self._current_step_index, file_path)
+
+        # Remove from pending
+        del self._pending_calls[matching_id]
+
+    def _extract_files(self, tool_name: str, args: dict, result: Any) -> list[str]:
+        """Extract file paths from tool call"""
+        files = []
+
+        # Explicit file operations
+        if tool_name in ("write_file", "create_directory") and "path" in args:
+            files.append(args["path"])
+
+        # Shell redirect patterns: > file.txt or >> file.txt
+        if tool_name == "run_command" and "command" in args:
+            cmd = args["command"]
+            # Match > or >> followed by filename (simple pattern)
+            redirect_matches = re.findall(r'>{1,2}\s*([^\s;&|]+)', cmd)
+            files.extend(redirect_matches)
+
+        # Python open() patterns
+        if tool_name == "run_python" and "code" in args:
+            code = args["code"]
+            # Match open('file', 'w') or open("file", "w") patterns
+            open_matches = re.findall(r"open\s*\(\s*['\"]([^'\"]+)['\"].*['\"][wax]", code)
+            files.extend(open_matches)
+
+        return files
 
     def get_tool_summary(self) -> dict:
         """Get tool usage statistics"""

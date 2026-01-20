@@ -20,13 +20,17 @@ class ExecutorAgent(BaseAgent):
         def my_factory(tools: list):
             return LoopAgent(name="executor", tools=tools + my_extra_tools, ...)
         executor = ExecutorAgent(plan_id="p1", agent_factory=my_factory)
+
+        # With sandbox tools:
+        executor = ExecutorAgent(plan_id="p1", model=model, extra_tools=[fs_tool, shell_tool])
     """
 
     def __init__(
         self,
         plan_id: str,
         model: Any = None,
-        agent_factory: Callable[[list], Any] = None
+        agent_factory: Callable[[list], Any] = None,
+        extra_tools: list = None,
     ):
         """
         Initialize ExecutorAgent.
@@ -35,6 +39,7 @@ class ExecutorAgent(BaseAgent):
             plan_id: ID of the plan in TaskManager
             model: LLM model (required if agent_factory is None)
             agent_factory: Optional factory function that receives tools and returns an agent
+            extra_tools: Additional tools (e.g., from sandbox) to include
         """
         plan = TaskManager.get_plan(plan_id)
         if plan is None:
@@ -42,6 +47,10 @@ class ExecutorAgent(BaseAgent):
 
         toolkit = ActToolkit(plan)
         tools = list(toolkit.get_tool_functions().values())
+
+        # Add extra tools (e.g., sandbox tools)
+        if extra_tools:
+            tools.extend(extra_tools)
 
         # Use factory or create default LlmAgent
         if agent_factory is not None:
@@ -64,10 +73,18 @@ class ExecutorAgent(BaseAgent):
 
     async def execute_step(self, step_index: int, context: str = "") -> str:
         """Execute a specific step"""
+        # Set current step for tool history tracking
+        self._current_step_index = step_index
+        self._pending_calls.clear()
+
         step_desc = self.plan.steps[step_index]
         query = f"Execute step {step_index}: {step_desc}"
         if context:
             query += f"\n\nContext: {context}"
 
-        result = await self.execute(query)
-        return result.output
+        try:
+            result = await self.execute(query)
+            return result.output
+        finally:
+            # Clear step tracking
+            self._current_step_index = None
