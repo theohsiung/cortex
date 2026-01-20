@@ -1,4 +1,8 @@
-from typing import Optional
+from typing import Optional, Any
+
+
+# Constants for tool history
+RESULT_MAX_LENGTH = 200
 
 
 class Plan:
@@ -25,6 +29,10 @@ class Plan:
         self.step_statuses: dict[str, str] = {step: "not_started" for step in self.steps}
         self.step_notes: dict[str, str] = {step: "" for step in self.steps}
 
+        # Initialize tool history and file tracking
+        self.step_tool_history: dict[int, list[dict]] = {}
+        self.step_files: dict[int, list[str]] = {}
+
     def update(
         self,
         title: Optional[str] = None,
@@ -40,6 +48,10 @@ class Plan:
             # Reinitialize status tracking for new steps
             self.step_statuses = {step: "not_started" for step in self.steps}
             self.step_notes = {step: "" for step in self.steps}
+
+            # Reinitialize tool history and file tracking
+            self.step_tool_history = {}
+            self.step_files = {}
 
             # Auto-generate dependencies if not provided
             if dependencies is None and len(self.steps) > 1:
@@ -65,6 +77,44 @@ class Plan:
 
         if step_notes is not None:
             self.step_notes[step] = step_notes
+
+    def add_tool_call(
+        self,
+        step_index: int,
+        tool: str,
+        args: dict,
+        result: Any,
+        timestamp: str
+    ) -> None:
+        """Record a tool call for a step"""
+        if step_index < 0 or step_index >= len(self.steps):
+            raise ValueError(f"Invalid step_index: {step_index}")
+
+        if step_index not in self.step_tool_history:
+            self.step_tool_history[step_index] = []
+
+        # Truncate result if too long
+        result_str = str(result)
+        if len(result_str) > RESULT_MAX_LENGTH:
+            result_str = result_str[:RESULT_MAX_LENGTH] + "...[truncated]"
+
+        self.step_tool_history[step_index].append({
+            "tool": tool,
+            "args": args,
+            "result": result_str,
+            "timestamp": timestamp
+        })
+
+    def add_file(self, step_index: int, file_path: str) -> None:
+        """Record a generated file for a step"""
+        if step_index < 0 or step_index >= len(self.steps):
+            raise ValueError(f"Invalid step_index: {step_index}")
+
+        if step_index not in self.step_files:
+            self.step_files[step_index] = []
+
+        if file_path not in self.step_files[step_index]:
+            self.step_files[step_index].append(file_path)
 
     def get_ready_steps(self) -> list[int]:
         """Get indices of steps ready to execute (dependencies satisfied)"""
@@ -123,5 +173,19 @@ class Plan:
 
             if self.step_notes[step]:
                 lines.append(f"      Notes: {self.step_notes[step]}")
+
+            # Show tool history summary
+            if idx in self.step_tool_history:
+                tool_counts: dict[str, int] = {}
+                for call in self.step_tool_history[idx]:
+                    tool_name = call["tool"]
+                    tool_counts[tool_name] = tool_counts.get(tool_name, 0) + 1
+                tools_str = ", ".join(f"{t} ({c})" for t, c in tool_counts.items())
+                lines.append(f"      Tools: {tools_str}")
+
+            # Show files
+            if idx in self.step_files and self.step_files[idx]:
+                files_str = ", ".join(self.step_files[idx])
+                lines.append(f"      Files: {files_str}")
 
         return "\n".join(lines)

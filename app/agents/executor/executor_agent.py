@@ -73,10 +73,18 @@ class ExecutorAgent(BaseAgent):
 
     async def execute_step(self, step_index: int, context: str = "") -> str:
         """Execute a specific step"""
+        # Set current step for tool history tracking
+        self._current_step_index = step_index
+        self._pending_calls.clear()
+
         step_desc = self.plan.steps[step_index]
         query = f"Execute step {step_index}: {step_desc}"
         if context:
             query += f"\n\nContext: {context}"
 
-        result = await self.execute(query)
-        return result.output
+        try:
+            result = await self.execute(query)
+            return result.output
+        finally:
+            # Clear step tracking
+            self._current_step_index = None
