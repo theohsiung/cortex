@@ -82,8 +82,12 @@ class Cortex:
                 await self.sandbox.start()
 
             # Get sandbox tools
-            planner_sandbox_tools = self.sandbox.get_planner_tools() if self.sandbox else []
-            executor_sandbox_tools = self.sandbox.get_executor_tools() if self.sandbox else []
+            planner_sandbox_tools = (
+                self.sandbox.get_planner_tools() if self.sandbox else []
+            )
+            executor_sandbox_tools = (
+                self.sandbox.get_executor_tools() if self.sandbox else []
+            )
 
             # Create plan
             planner = PlannerAgent(
