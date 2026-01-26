@@ -6,9 +6,9 @@ Cortex 是一個基於 Google ADK (Agent Development Kit) 的 AI Agent 框架。
 
 想像你有一個很聰明的助理，當你給他一個複雜的任務時，他會：
 
-1. **規劃 (Planning)**: 先把任務拆解成多個小步驟
-2. **執行 (Execution)**: 一步一步完成每個小步驟
-3. **回報 (Reporting)**: 告訴你完成了什麼
+1. **規劃 (Planning)**: 先把任務拆解成多個小步驟，並建立依賴關係
+2. **並行執行 (Parallel Execution)**: 根據 DAG 依賴關係，同時執行多個獨立步驟
+3. **彙整 (Aggregation)**: 將各步驟的輸出整合成最終結果
 
 這就是 Cortex 在做的事情！
 
@@ -16,16 +16,17 @@ Cortex 是一個基於 Google ADK (Agent Development Kit) 的 AI Agent 框架。
 使用者: "幫我整理房間"
     ↓
 Cortex 規劃:
-    步驟 1: 收拾桌面
-    步驟 2: 整理書櫃
-    步驟 3: 吸地板
+    步驟 0: 準備清潔工具
+    步驟 1: 收拾桌面      (依賴步驟 0)
+    步驟 2: 整理書櫃      (依賴步驟 0)
+    步驟 3: 吸地板        (依賴步驟 1, 2)
     ↓
-Cortex 執行:
-    ✓ 步驟 1 完成
-    ✓ 步驟 2 完成
+Cortex 並行執行:
+    ✓ 步驟 0 完成
+    ✓ 步驟 1, 2 同時執行 (並行)
     ✓ 步驟 3 完成
     ↓
-Cortex 回報: "房間整理完成！"
+Cortex 彙整: "房間整理完成！以下是執行摘要..."
 ```
 
 ---
@@ -108,8 +109,9 @@ cortex/
 - 接收使用者的任務
 - 創建一個新的 Plan (計畫)
 - 呼叫 PlannerAgent 來規劃步驟
-- 呼叫 ExecutorAgent 來執行步驟
-- 回報最終結果
+- **並行執行**步驟 (根據 DAG 依賴關係，使用 `Semaphore(3)` 控制並行數)
+- **自動重試**失敗的步驟 (最多 3 次嘗試)
+- 使用 **Aggregator** 將各步驟輸出彙整成最終結果
 
 ```python
 # 使用範例 - 預設 LlmAgent
@@ -367,6 +369,56 @@ cortex = Cortex(
 
 ---
 
+### 9. 並行執行引擎
+
+**這是什麼？** Cortex 的核心執行引擎，根據 DAG 依賴關係並行執行步驟。
+
+**特色：**
+
+| 功能 | 說明 |
+|------|------|
+| **DAG 執行** | 根據依賴關係自動決定執行順序 |
+| **並行控制** | `Semaphore(3)` 最多同時執行 3 個步驟 |
+| **自動重試** | 失敗的步驟自動重試，最多 3 次嘗試 |
+| **結果累積** | 前置步驟的輸出會傳遞給依賴步驟 |
+| **LLM 彙整** | Aggregator 將所有步驟輸出整合成最終結果 |
+
+**執行邏輯：**
+
+```python
+# 簡化的並行執行邏輯
+while pending_steps:
+    # 1. 找出所有可以執行的步驟 (依賴已完成)
+    ready_steps = plan.get_ready_steps()
+
+    # 2. 並行執行 (最多 3 個同時)
+    async with Semaphore(3):
+        results = await asyncio.gather(*[
+            execute_step_with_retry(step)
+            for step in ready_steps
+        ])
+
+    # 3. 累積輸出供後續步驟使用
+    step_outputs.update(results)
+
+# 4. 彙整最終結果
+final_result = await aggregator.synthesize(step_outputs)
+```
+
+**重試機制：**
+
+```
+Step 執行失敗
+    ↓
+嘗試 1/3 → 失敗 → 重試
+    ↓
+嘗試 2/3 → 失敗 → 重試
+    ↓
+嘗試 3/3 → 失敗 → 標記為 blocked
+```
+
+---
+
 ## 執行流程圖
 
 ```
@@ -384,30 +436,42 @@ cortex = Cortex(
 │                  │
 │ 1. 分析任務       │
 │ 2. 拆解成步驟     │
-│ 3. 呼叫 create_plan │
+│ 3. 建立依賴關係   │
+│ 4. 呼叫 create_plan │
 └────────┬─────────┘
          │
          ▼
+┌──────────────────────────────────────┐
+│              Plan (DAG)               │
+│                                       │
+│  steps: [A, B, C, D]                  │
+│  dependencies: {2: [0,1], 3: [2]}     │
+│                                       │
+│       A ──────┐                       │
+│               ├──► C ──► D            │
+│       B ──────┘                       │
+│    (A,B 可並行)                        │
+└────────┬─────────────────────────────┘
+         │
+         ▼
+┌──────────────────────────────────────┐
+│      Cortex 並行執行引擎               │
+│         (Semaphore = 3)               │
+│                                       │
+│  while 有待執行步驟:                   │
+│    1. 找出所有 ready 步驟              │
+│    2. 並行執行 (最多 3 個同時)         │
+│    3. 失敗自動重試 (最多 3 次)         │
+│    4. 累積 step_outputs               │
+└────────┬─────────────────────────────┘
+         │
+         ▼
 ┌──────────────────┐
-│      Plan        │
+│    Aggregator    │
 │                  │
-│ steps: [A, B, C] │
-│ status: 全部待執行│
+│ 彙整所有步驟輸出   │
+│ 生成最終結果      │
 └────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│  ExecutorAgent   │◄─────────┐
-│                  │          │
-│ 1. 取得待執行步驟 │          │
-│ 2. 執行步驟      │          │ 重複直到
-│ 3. 呼叫 mark_step │          │ 全部完成
-└────────┬─────────┘          │
-         │                    │
-         ▼                    │
-    還有步驟？ ──是──────────────┘
-         │
-         否
          │
          ▼
 ┌──────────────────┐
@@ -517,18 +581,18 @@ model = LiteLlm(
 
 ## 測試覆蓋
 
-目前共有 **93 個測試**，涵蓋所有核心功能：
+目前共有 **101 個測試**，涵蓋所有核心功能：
 
 | 模組           | 測試數量 | 說明                                     |
 | -------------- | -------- | ---------------------------------------- |
 | TaskManager    | 5        | 計畫存取、刪除、執行緒安全               |
 | Plan           | 20       | 建立、更新、狀態追蹤、依賴關係、工具歷史 |
-| PlanToolkit    | 7        | create_plan、update_plan 工具            |
-| ActToolkit     | 7        | mark_step 工具                           |
+| PlanToolkit    | 8        | create_plan、update_plan、aliased tools  |
+| ActToolkit     | 8        | mark_step、aliased tools                 |
 | BaseAgent      | 8        | 初始化、工具事件追蹤、Agent 儲存         |
 | PlannerAgent   | 6        | 初始化、工具整合、agent_factory、extra_tools |
 | ExecutorAgent  | 6        | 初始化、工具整合、agent_factory、extra_tools |
-| Cortex         | 11       | 初始化、歷史記錄、清理、factory、sandbox |
+| Cortex         | 17       | 初始化、歷史記錄、factory、sandbox、**並行執行** |
 | SandboxManager | 16       | Docker 生命週期、MCP 工具、使用者 MCP    |
 
 ---
