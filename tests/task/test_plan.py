@@ -33,6 +33,28 @@ class TestPlan:
 
         assert plan.dependencies == {2: [0, 1]}
 
+    def test_create_plan_normalizes_string_keys(self):
+        """Should convert string keys to integers (JSON parsing produces strings)"""
+        # Simulate JSON-parsed dependencies (keys are strings)
+        plan = Plan(
+            title="Test",
+            steps=["A", "B", "C"],
+            dependencies={"1": ["0"], "2": ["1"]}
+        )
+
+        # Keys and values should be normalized to integers
+        assert plan.dependencies == {1: [0], 2: [1]}
+        assert all(isinstance(k, int) for k in plan.dependencies.keys())
+        assert all(isinstance(v, int) for vals in plan.dependencies.values() for v in vals)
+
+    def test_update_plan_normalizes_string_keys(self):
+        """Should normalize string keys on update"""
+        plan = Plan(steps=["A", "B"])
+
+        plan.update(dependencies={"1": ["0"]})
+
+        assert plan.dependencies == {1: [0]}
+
     def test_update_plan(self):
         """Should update plan properties"""
         plan = Plan()

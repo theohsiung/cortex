@@ -8,6 +8,19 @@ RESULT_MAX_LENGTH = 200
 class Plan:
     """Represents an execution plan with steps, dependencies, and status tracking"""
 
+    @staticmethod
+    def _normalize_dependencies(deps: dict) -> dict[int, list[int]]:
+        """Normalize dependencies dict to ensure all keys and values are integers.
+
+        JSON parsing converts dict keys to strings, so we need to convert them back.
+        """
+        if not deps:
+            return {}
+        return {
+            int(k): [int(v) for v in vals]
+            for k, vals in deps.items()
+        }
+
     def __init__(
         self,
         title: str = "",
@@ -19,7 +32,7 @@ class Plan:
 
         # Auto-generate sequential dependencies if not provided
         if dependencies is not None:
-            self.dependencies = dependencies
+            self.dependencies = self._normalize_dependencies(dependencies)
         elif len(self.steps) > 1:
             self.dependencies = {i: [i - 1] for i in range(1, len(self.steps))}
         else:
@@ -61,7 +74,7 @@ class Plan:
                 self.dependencies = {i: [i - 1] for i in range(1, len(self.steps))}
 
         if dependencies is not None:
-            self.dependencies = dependencies
+            self.dependencies = self._normalize_dependencies(dependencies)
 
     def mark_step(
         self,
@@ -374,7 +387,8 @@ class Plan:
             self.step_notes[step] = ""
 
         # Convert relative dependencies to absolute indices
-        for rel_idx, rel_deps in new_dependencies.items():
+        normalized_deps = self._normalize_dependencies(new_dependencies)
+        for rel_idx, rel_deps in normalized_deps.items():
             abs_idx = base_idx + rel_idx
             # Map relative deps to absolute, and add connection to insert_after
             abs_deps = []
