@@ -42,7 +42,7 @@ async def main():
     #         tools=tools,  # toolkit tools are injected here
     #     )
     #
-    # cortex = Cortex(planner_factory=my_planner_factory)
+    # cortex = Cortex(planner_factory=my_planner_factory, executor_factory=my_executor_factory)
     # ------------------------------------
 
     # Execute a task

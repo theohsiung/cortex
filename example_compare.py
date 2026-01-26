@@ -6,8 +6,13 @@ Usage:
 """
 
 import asyncio
+import os
 import time
 import warnings
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
 
@@ -68,11 +73,11 @@ async def main():
     model = LiteLlm(
         model=f"openai/{MODEL_NAME}",
         api_base=API_BASE_URL,
-        api_key="sk-LR0Tm1AzzJp75jfzzG1jzQ",
+        api_key=os.getenv("DELTALLM_API_KEY"),
     )
     # model = LiteLlm(
     #     model=f"gemini/gemini-2.5-flash",
-    #     api_key="AIzaSyD1_AEknDmF_gjdlLJoUc-1UDUv3kBpwRE",
+    #     api_key=os.getenv("GEMINI_API_KEY"),
     # )
     # model = LiteLlm(
     #     model=f"openai/Qwen/Qwen3-4B-Instruct-2507",

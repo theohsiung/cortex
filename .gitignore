@@ -11,3 +11,7 @@ wheels/
 
 # Git worktrees
 .worktrees/
+
+# Environment files
+.env
+.env.*

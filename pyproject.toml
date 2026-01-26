@@ -12,6 +12,7 @@ dependencies = [
     "ipython>=9.9.0",
     "litellm>=1.80.16",
     "mcp>=1.0.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [dependency-groups]
