@@ -100,9 +100,28 @@ step_tool_history[step_idx] = [
 | `add_tool_call(step_idx, tool, args)` | 記錄 pending call |
 | `update_tool_result(step_idx, tool, result)` | 更新為 success |
 | `finalize_step(step_idx)` | step 結束，檢查有無 pending |
-| `rewrite_step(idx, new_desc)` | 重寫描述 |
-| `split_step(idx, new_steps, new_deps)` | 拆解 step |
-| `get_step_output(idx)` | 取得成功 step 的輸出 |
+| `get_downstream_steps(step_idx)` | 取得某 step 的所有下游依賴 |
+| `remove_steps(step_indices)` | 移除指定的 steps 並更新 DAG |
+| `add_steps(steps, dependencies, insert_after)` | 新增 steps 到 DAG |
+| `format_tool_history(step_indices)` | 格式化指定 steps 的 tool history |
+
+### get_downstream_steps 實作
+
+```python
+def get_downstream_steps(self, step_idx: int) -> list[int]:
+    """取得某個 step 的所有下游 step（直接 + 間接依賴它的）"""
+    downstream = set()
+    to_check = [step_idx]
+
+    while to_check:
+        current = to_check.pop()
+        for idx, deps in self.dependencies.items():
+            if current in deps and idx not in downstream:
+                downstream.add(idx)
+                to_check.append(idx)
+
+    return sorted(downstream)
+```
 
 ---
 
@@ -141,37 +160,73 @@ class Verifier:
 
 ## Replanner 機制
 
-Replanner 是 LLM Agent，負責重寫/拆解失敗的 step。
+Replanner 是 LLM Agent，負責重新設計失敗的 step 及其所有下游依賴。
+
+### 重要概念：Subgraph Replan
+
+當 step 失敗時，不只重寫該 step，而是重新設計整個受影響的子圖。
+
+**範例：** `{1:[0], 2:[0], 3:[1], 4:[2], 5:[3,4], 6:[5], 7:[5]}`
+
+```
+0 → 1 → 3 ─┐
+  ↘ 2 → 4 ─┴→ 5 → 6
+              ↘ 7
+```
+
+如果 step 5 失敗：
+- **保留**：Steps 0, 1, 2, 3, 4（已完成）
+- **重新設計**：Steps 5, 6, 7（失敗的 + 下游）
 
 ### 重試上限
 
 - 最多重寫 2 次
 - 原執行 + 2 次重寫 = 共 3 次機會
 
-### Replanner System Prompt
+### Replanner 輸入資訊
+
+Replanner 收到**完整的 tool_history**（非 LLM 總結），以便做出準確判斷：
 
 ```
-你是一個計畫修正專家。一個執行步驟失敗了，請根據資訊決定如何修正。
+## 已完成的 Steps 詳細記錄
 
-## 整體計畫
-{plan.format_with_outputs(step_outputs)}
+### Step 0: 分析需求
+Tool calls:
+- read_file(path="requirements.md") → "需要建立 REST API..."
 
-## 失敗的 Step
-- Index: {failed_step_idx}
-- 描述: {plan.steps[failed_step_idx]}
-- 已重試次數: {plan.replan_attempts[failed_step_idx]}
+### Step 1: 建立專案結構
+Tool calls:
+- create_directory(path="src/") → "Directory created"
+- create_directory(path="tests/") → "Directory created"
 
-## 失敗的 Tool Calls
-{failed_calls}
+### Step 3: 建立資料模型
+Tool calls:
+- write_file(path="src/models.py", content="...") → "File written"
+
+### Step 4: 設定資料庫連線
+Tool calls:
+- write_file(path="src/database.py", content="...") → "File written"
+- run_command(command="python -c 'import sqlalchemy'") → "OK"
+
+---
+
+## 失敗的 Step 及下游（需重新設計）
+
+### Step 5: 撰寫 API endpoints [FAILED]
+Tool calls:
+- write_file(path="src/api.py", ...) → status: "pending" ❌
+
+### Step 6: 撰寫測試 (depends on: 5)
+### Step 7: 執行測試 (depends on: 5)
+
+---
 
 ## 可用 Tools
 {available_tools}
 
-## 你可以選擇：
-1. rewrite - 重寫這個 step 的描述
-2. split - 把這個 step 拆成多個更小的步驟
-
-請用 replan tool 輸出你的決定。
+## 請重新設計 steps 5, 6, 7
+- 可以合併、拆分、或完全重寫
+- 輸出新的 steps 和 dependencies
 ```
 
 ### ReplanResult 結構
@@ -179,11 +234,28 @@ Replanner 是 LLM Agent，負責重寫/拆解失敗的 step。
 ```python
 @dataclass
 class ReplanResult:
-    action: str  # "rewrite" | "split" | "give_up"
-    new_description: str = None        # for rewrite
-    new_steps: list[str] = None        # for split
-    new_dependencies: dict = None      # for split
+    action: str  # "redesign" | "give_up"
+    new_steps: list[str]              # 新的 step 描述列表
+    new_dependencies: dict[int, list[int]]  # 新的依賴關係（相對索引）
 ```
+
+**範例輸出：**
+
+```python
+# 原本 steps 5, 6, 7 被重新設計為 3 個新 steps
+ReplanResult(
+    action="redesign",
+    new_steps=[
+        "建立 API 基本框架和路由設定",
+        "實作各 endpoint 的商業邏輯",
+        "撰寫單元測試並執行"
+    ],
+    new_dependencies={
+        0: [],      # 新 step 0 (原 5) 依賴已完成的 steps (由系統處理)
+        1: [0],     # 新 step 1 依賴新 step 0
+        2: [1]      # 新 step 2 依賴新 step 1
+    }
+)
 
 ---
 
@@ -200,8 +272,6 @@ async def execute(self, query: str) -> str:
     verifier = Verifier()
     replanner = ReplannerAgent(...)
 
-    step_outputs: dict[int, str] = {}
-
     # 3. 執行迴圈
     while True:
         ready_steps = plan.get_ready_steps()
@@ -216,7 +286,6 @@ async def execute(self, query: str) -> str:
             # 驗證
             if verifier.verify_step(plan, step_idx):
                 plan.mark_step(step_idx, step_status="completed")
-                step_outputs[step_idx] = output
             else:
                 # 檢查重試次數
                 attempts = plan.replan_attempts.get(step_idx, 0)
@@ -224,20 +293,39 @@ async def execute(self, query: str) -> str:
                     plan.mark_step(step_idx, step_status="blocked")
                     continue
 
-                # Replan
-                result = await replanner.replan(plan, step_idx, ...)
+                # 找出需要重新設計的 steps (失敗的 + 下游)
+                downstream = plan.get_downstream_steps(step_idx)
+                steps_to_replan = [step_idx] + downstream
+
+                # 取得已完成 steps 的 tool history
+                completed_steps = [
+                    i for i in range(len(plan.steps))
+                    if plan.step_statuses[plan.steps[i]] == "completed"
+                ]
+                completed_tool_history = plan.format_tool_history(completed_steps)
+
+                # Replan 整個子圖
+                result = await replanner.replan_subgraph(
+                    plan=plan,
+                    steps_to_replan=steps_to_replan,
+                    completed_tool_history=completed_tool_history,
+                    available_tools=available_tools
+                )
                 plan.replan_attempts[step_idx] = attempts + 1
 
-                if result.action == "rewrite":
-                    plan.rewrite_step(step_idx, result.new_description)
-                elif result.action == "split":
-                    plan.split_step(step_idx, result.new_steps, result.new_dependencies)
-
-                # 重設狀態為 not_started，下輪會重新執行
-                plan.mark_step(step_idx, step_status="not_started")
+                if result.action == "redesign":
+                    # 移除舊的 steps，加入新的
+                    plan.remove_steps(steps_to_replan)
+                    plan.add_steps(
+                        result.new_steps,
+                        result.new_dependencies,
+                        insert_after=max(completed_steps)
+                    )
+                elif result.action == "give_up":
+                    plan.mark_step(step_idx, step_status="blocked")
 
     # 4. 彙整結果
-    return await self._aggregate_results(query, plan, step_outputs)
+    return await self._aggregate_results(query, plan)
 ```
 
 ### 狀態轉換圖
@@ -251,8 +339,10 @@ finalize_step()
     ↓
 verify_step()
     ├─ pass → completed
-    └─ fail → replan
-              ├─ 次數 < 2 → rewrite/split → not_started (重新執行)
+    └─ fail → 找出下游 steps
+              ↓
+              replan_subgraph(failed + downstream)
+              ├─ 次數 < 2 → redesign → 移除舊 steps，加入新 steps
               └─ 次數 >= 2 → blocked (放棄)
 ```
 
@@ -279,9 +369,9 @@ verify_step()
 
 | 測試檔案 | 測試項目 |
 |----------|----------|
-| `tests/task/test_plan.py` | `add_tool_call`, `update_tool_result`, `finalize_step`, `rewrite_step`, `split_step` |
+| `tests/task/test_plan.py` | `add_tool_call`, `update_tool_result`, `finalize_step`, `get_downstream_steps`, `remove_steps`, `add_steps` |
 | `tests/agents/verifier/test_verifier.py` | pass/fail 判定邏輯 |
-| `tests/agents/replanner/test_replanner_agent.py` | rewrite/split 輸出格式 |
+| `tests/agents/replanner/test_replanner_agent.py` | subgraph redesign 輸出格式 |
 | `tests/test_cortex.py` | 整合測試：驗證失敗觸發 replan |
 
 ### 測試案例
@@ -293,7 +383,18 @@ def test_verify_pass_when_all_success(): ...
 def test_verify_fail_when_has_pending(): ...
 
 # Plan 測試
-def test_rewrite_step_updates_description(): ...
-def test_split_step_updates_dag(): ...
-def test_split_step_preserves_completed_steps(): ...
+def test_get_downstream_steps_direct_dependency(): ...
+def test_get_downstream_steps_indirect_dependency(): ...
+def test_get_downstream_steps_complex_dag(): ...
+def test_remove_steps_updates_dependencies(): ...
+def test_add_steps_preserves_completed(): ...
+def test_format_tool_history(): ...
+
+# Replanner 測試
+def test_replan_subgraph_redesign(): ...
+def test_replan_subgraph_give_up_after_max_attempts(): ...
+
+# 整合測試
+def test_failed_step_triggers_subgraph_replan(): ...
+def test_completed_steps_preserved_after_replan(): ...
 ```
