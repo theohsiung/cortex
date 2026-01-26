@@ -1,3 +1,4 @@
+import functools
 from google.genai.types import FunctionDeclaration
 from app.task.plan import Plan
 
@@ -49,8 +50,33 @@ class ActToolkit:
         """Return schema list for LlmAgent"""
         return [self.MARK_STEP_SCHEMA]
 
-    def get_tool_functions(self) -> dict:
-        """Return function mapping for tool execution"""
-        return {
-            "mark_step": self.mark_step
-        }
+    def get_tool_functions(self, include_aliases: bool = False) -> list:
+        """Return list of tool functions for LlmAgent.
+
+        Args:
+            include_aliases: If True, include aliased versions for handling
+                             LLM hallucinated tool names (for gpt-oss models).
+                             Gemini doesn't support special chars in function names.
+        """
+        tools = [self.mark_step]
+
+        if include_aliases:
+            # Add aliased tools for common hallucinated suffixes (gpt-oss specific)
+            hallucinated_suffixes = [
+                "<|channel|>json",
+                "<|channel|>commentary",
+                "<|end|>",
+                "<|tool|>",
+            ]
+            for suffix in hallucinated_suffixes:
+                tools.append(self._create_aliased_tool(self.mark_step, f"mark_step{suffix}"))
+
+        return tools
+
+    def _create_aliased_tool(self, func, alias_name: str):
+        """Create a wrapper function with a custom __name__ for ADK registration."""
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+        wrapper.__name__ = alias_name
+        return wrapper

@@ -1,5 +1,6 @@
+import asyncio
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Union
 
 from app.task.task_manager import TaskManager
 from app.task.plan import Plan
@@ -98,7 +99,7 @@ class Cortex:
             )
             await planner.create_plan(query)
 
-            # Execute steps
+            # Execute steps with parallel execution
             executor = ExecutorAgent(
                 plan_id=plan_id,
                 model=self.model,
@@ -106,22 +107,67 @@ class Cortex:
                 extra_tools=executor_sandbox_tools,
             )
 
+            step_outputs: dict[int, str] = {}
+            semaphore = asyncio.Semaphore(3)
+
+            async def execute_with_limit(
+                step_idx: int,
+                max_retries: int = 3,
+            ) -> tuple[int, Union[str, Exception]]:
+                # Build context from dependency outputs
+                deps = plan.dependencies.get(step_idx, [])
+                dep_context = "\n".join(
+                    f"Step {d} result: {step_outputs[d]}"
+                    for d in deps
+                    if d in step_outputs
+                )
+                full_context = f"{query}\n\n{dep_context}" if dep_context else query
+
+                async with semaphore:
+                    plan.mark_step(step_idx, step_status="in_progress")
+                    last_error = None
+                    for attempt in range(max_retries + 1):
+                        try:
+                            output = await executor.execute_step(
+                                step_idx, context=full_context
+                            )
+                            return step_idx, output
+                        except Exception as e:
+                            last_error = e
+                            if attempt < max_retries:
+                                print(
+                                    f"\033[33m[Cortex] Step {step_idx} failed "
+                                    f"(attempt {attempt + 1}/{max_retries + 1}): {e}. "
+                                    f"Retrying...\033[0m"
+                                )
+                                continue
+                    return step_idx, last_error
+
             while True:
                 ready_steps = plan.get_ready_steps()
                 if not ready_steps:
                     break
 
-                for step_idx in ready_steps:
-                    plan.mark_step(step_idx, step_status="in_progress")
-                    await executor.execute_step(step_idx, context=query)
+                results = await asyncio.gather(
+                    *[execute_with_limit(idx) for idx in ready_steps]
+                )
 
-            # Generate summary
-            summary = self._generate_summary(plan)
+                for step_idx, result in results:
+                    if isinstance(result, Exception):
+                        plan.mark_step(
+                            step_idx, step_status="blocked", step_notes=str(result)
+                        )
+                    else:
+                        step_outputs[step_idx] = result
+                        plan.mark_step(step_idx, step_status="completed")
+
+            # Generate final result by aggregating step outputs
+            final_result = await self._aggregate_results(query, plan, step_outputs)
 
             # Record result in history
-            self.history.append({"role": "assistant", "content": summary})
+            self.history.append({"role": "assistant", "content": final_result})
 
-            return summary
+            return final_result
 
         finally:
             # Cleanup
@@ -129,11 +175,66 @@ class Cortex:
             if self.sandbox:
                 await self.sandbox.stop()
 
-    def _generate_summary(self, plan: Plan) -> str:
-        """Generate execution summary"""
+    async def _aggregate_results(
+        self, query: str, plan: Plan, step_outputs: dict[int, str]
+    ) -> str:
+        """Aggregate step outputs into a final result using LLM"""
+        from google.adk.agents import LlmAgent
+        from google.adk.runners import Runner
+        from google.adk.sessions import InMemorySessionService
+        from google.genai.types import Content, Part
+
+        # Build context from all step outputs in order
+        outputs_text = "\n\n".join(
+            f"=== Step {i}: {plan.steps[i]} ===\n{step_outputs.get(i, '[No output]')}"
+            for i in range(len(plan.steps))
+        )
+
+        aggregation_prompt = f"""Based on the following task and step outputs, synthesize a final coherent result.
+
+Original task: {query}
+
+Step outputs:
+{outputs_text}
+
+Reference the outputs of these detailed steps to generate a corresponding complete response to the original task.
+Important: Detect the language used in the 'Original task' (e.g., English, Traditional Chinese, etc.) and write your final result in the SAME language.
+Do not include meta-commentary about the steps - just provide the final deliverable in the detected language."""
+
+        # Create aggregator agent
+        aggregator = LlmAgent(
+            name="aggregator",
+            model=self.model,
+            instruction="You are a content synthesizer. Combine multiple step outputs into a coherent final result.",
+        )
+
+        session_service = InMemorySessionService()
+        session = await session_service.create_session(
+            app_name="aggregator", user_id="aggregator"
+        )
+
+        runner = Runner(
+            agent=aggregator,
+            session_service=session_service,
+            app_name="aggregator",
+        )
+        content = Content(parts=[Part(text=aggregation_prompt)])
+
+        final_output = ""
+        async for event in runner.run_async(
+            user_id="aggregator", session_id=session.id, new_message=content
+        ):
+            if hasattr(event, "content") and event.content:
+                if hasattr(event.content, "parts"):
+                    for part in event.content.parts:
+                        if hasattr(part, "text") and part.text:
+                            final_output = part.text
+
+        # Include execution stats and step details
         progress = plan.get_progress()
-        return f"""Task completed.
+        return f"""{final_output}
 
-{plan.format()}
+---
+Execution: {progress['completed']}/{progress['total']} steps completed.
 
-Summary: {progress['completed']}/{progress['total']} steps completed."""
+{plan.format()}"""

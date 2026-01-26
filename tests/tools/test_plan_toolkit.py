@@ -65,9 +65,29 @@ class TestPlanToolkit:
         assert "update_plan" in names
 
     def test_get_tool_functions(self):
-        """Should return dict mapping names to functions"""
+        """Should return list of callable functions"""
         functions = self.toolkit.get_tool_functions()
 
-        assert "create_plan" in functions
-        assert "update_plan" in functions
-        assert callable(functions["create_plan"])
+        # Should be a list
+        assert isinstance(functions, list)
+
+        # Default: only original tools (no aliases)
+        assert len(functions) == 2
+
+        # All should be callable
+        assert all(callable(f) for f in functions)
+
+        # Should include create_plan and update_plan
+        func_names = [f.__name__ for f in functions]
+        assert "create_plan" in func_names
+        assert "update_plan" in func_names
+
+    def test_get_tool_functions_with_aliases(self):
+        """Should include aliased versions when include_aliases=True"""
+        functions = self.toolkit.get_tool_functions(include_aliases=True)
+
+        # Should include original tools and aliased versions (2 + 6 = 8)
+        assert len(functions) == 8
+
+        # All should be callable
+        assert all(callable(f) for f in functions)
