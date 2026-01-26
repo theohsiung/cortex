@@ -46,7 +46,7 @@ class PlannerAgent(BaseAgent):
             raise ValueError(f"Plan not found: {plan_id}")
 
         # Detect if model supports aliased tool names (Gemini doesn't)
-        include_aliases = self._should_include_aliases(model)
+        include_aliases = self.should_include_aliases(model)
 
         toolkit = PlanToolkit(plan)
         tools = toolkit.get_tool_functions(include_aliases=include_aliases)
@@ -78,24 +78,6 @@ class PlannerAgent(BaseAgent):
         super().__init__(
             agent=agent, tool_functions=tool_functions, plan_id=plan_id
         )
-
-    @staticmethod
-    def _should_include_aliases(model: Any) -> bool:
-        """Check if model supports aliased tool names with special characters.
-
-        Gemini API doesn't support special chars like <|channel|> in function names.
-        gpt-oss models may hallucinate these suffixes and need aliases.
-        """
-        if model is None:
-            return False
-        model_str = str(model).lower()
-        # Gemini doesn't support special chars in function names
-        if "gemini" in model_str:
-            return False
-        # gpt-oss models may need aliases for hallucinated tool names
-        if "gpt-oss" in model_str or "openai" in model_str:
-            return True
-        return False
 
     async def create_plan(self, task: str) -> str:
         """Create a plan for the given task"""

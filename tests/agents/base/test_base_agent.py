@@ -102,6 +102,28 @@ class TestBaseAgent:
 
         assert agent.tool_functions == {}
 
+    def test_should_include_aliases_none_model(self):
+        """Should return False when model is None"""
+        assert BaseAgent.should_include_aliases(None) is False
+
+    def test_should_include_aliases_gemini(self):
+        """Should return False for Gemini models"""
+        mock_model = Mock()
+        mock_model.__str__ = Mock(return_value="gemini/gemini-2.5-flash")
+        assert BaseAgent.should_include_aliases(mock_model) is False
+
+    def test_should_include_aliases_openai(self):
+        """Should return True for OpenAI models"""
+        mock_model = Mock()
+        mock_model.__str__ = Mock(return_value="openai/gpt-oss-20b")
+        assert BaseAgent.should_include_aliases(mock_model) is True
+
+    def test_should_include_aliases_unknown(self):
+        """Should return False for unknown models"""
+        mock_model = Mock()
+        mock_model.__str__ = Mock(return_value="some-other-model")
+        assert BaseAgent.should_include_aliases(mock_model) is False
+
 
 class TestAgentResult:
     def test_agent_result_creation(self):

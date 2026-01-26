@@ -1,8 +1,11 @@
 import asyncio
+import logging
 import time
 from typing import Any, Callable, Union
 
 from app.task.task_manager import TaskManager
+
+logger = logging.getLogger(__name__)
 from app.task.plan import Plan
 from app.agents.planner.planner_agent import PlannerAgent
 from app.agents.executor.executor_agent import ExecutorAgent
@@ -135,10 +138,12 @@ class Cortex:
                         except Exception as e:
                             last_error = e
                             if attempt < max_retries:
-                                print(
-                                    f"\033[33m[Cortex] Step {step_idx} failed "
-                                    f"(attempt {attempt + 1}/{max_retries + 1}): {e}. "
-                                    f"Retrying...\033[0m"
+                                logger.warning(
+                                    "Step %d failed (attempt %d/%d): %s. Retrying...",
+                                    step_idx,
+                                    attempt + 1,
+                                    max_retries + 1,
+                                    e,
                                 )
                                 continue
                     return step_idx, last_error

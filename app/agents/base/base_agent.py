@@ -258,3 +258,27 @@ class BaseAgent:
             "total_responses": len(responses),
             "tools_used": list(set(e["name"] for e in calls))
         }
+
+    @staticmethod
+    def should_include_aliases(model: Any) -> bool:
+        """Check if model supports aliased tool names with special characters.
+
+        Gemini API doesn't support special chars like <|channel|> in function names.
+        gpt-oss models may hallucinate these suffixes and need aliases.
+
+        Args:
+            model: The LLM model instance
+
+        Returns:
+            True if model needs aliased tool names, False otherwise
+        """
+        if model is None:
+            return False
+        model_str = str(model).lower()
+        # Gemini doesn't support special chars in function names
+        if "gemini" in model_str:
+            return False
+        # gpt-oss models may need aliases for hallucinated tool names
+        if "gpt-oss" in model_str or "openai" in model_str:
+            return True
+        return False
