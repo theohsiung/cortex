@@ -355,7 +355,8 @@ class Plan:
         # When a dep points to a removed step, inherit that step's dependencies
         new_dependencies: dict[int, list[int]] = {}
         for old_idx, deps in self.dependencies.items():
-            if old_idx in removed_set:
+            # Skip removed indices and stale out-of-range indices
+            if old_idx in removed_set or old_idx not in index_map:
                 continue
 
             resolved_deps: set[int] = set()
@@ -364,9 +365,9 @@ class Plan:
                     # Inherit the removed step's dependencies
                     inherited = self.dependencies.get(dep, [])
                     for inherited_dep in inherited:
-                        if inherited_dep not in removed_set:
+                        if inherited_dep not in removed_set and inherited_dep in index_map:
                             resolved_deps.add(inherited_dep)
-                else:
+                elif dep in index_map:
                     resolved_deps.add(dep)
 
             new_idx = index_map[old_idx]
