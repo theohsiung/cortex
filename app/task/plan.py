@@ -230,10 +230,14 @@ class Plan:
         """
         downstream = set()
         to_check = [step_idx]
+        max_valid_idx = len(self.steps) - 1
 
         while to_check:
             current = to_check.pop()
             for idx, deps in self.dependencies.items():
+                # Skip stale indices that are out of range
+                if idx > max_valid_idx:
+                    continue
                 if current in deps and idx not in downstream:
                     downstream.add(idx)
                     to_check.append(idx)
@@ -300,11 +304,16 @@ class Plan:
         Args:
             step_indices: List of step indices to remove (must be sorted desc internally)
         """
+        # Filter out invalid indices (out of range)
+        valid_indices = [idx for idx in step_indices if 0 <= idx < len(self.steps)]
+        if not valid_indices:
+            return
+
         # Sort indices in descending order to remove from end first
-        indices_to_remove = sorted(step_indices, reverse=True)
+        indices_to_remove = sorted(valid_indices, reverse=True)
 
         # Build mapping from old index to new index
-        removed_set = set(step_indices)
+        removed_set = set(valid_indices)
         index_map: dict[int, int] = {}
         new_idx = 0
         for old_idx in range(len(self.steps)):
