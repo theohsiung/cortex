@@ -255,6 +255,23 @@ class Plan:
             "not_started": statuses.count("not_started")
         }
 
+    def format_dag(self) -> str:
+        """Format DAG structure for debugging.
+
+        Returns:
+            Compact DAG representation showing steps and dependencies
+        """
+        lines = []
+        for idx, step in enumerate(self.steps):
+            status = self.step_statuses.get(step, "?")
+            status_char = {"completed": "✓", "blocked": "!", "in_progress": "→"}.get(status, " ")
+            deps = self.dependencies.get(idx, [])
+            dep_str = f" ← {deps}" if deps else ""
+            # Truncate step description for readability
+            step_short = step[:30] + "..." if len(step) > 30 else step
+            lines.append(f"  [{status_char}] {idx}: {step_short}{dep_str}")
+        return "\n".join(lines)
+
     def format(self) -> str:
         """Format plan for display"""
         lines = [f"Plan: {self.title}", "=" * 40, ""]

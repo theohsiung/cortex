@@ -233,7 +233,7 @@ class Cortex:
                                     step_idx, len(downstream), attempts + 1, ReplannerAgent.MAX_REPLAN_ATTEMPTS
                                 )
                                 logger.info("  Steps to replan: %s", steps_to_replan)
-                                logger.info("  Current dependencies: %s", plan.dependencies)
+                                logger.info("  Current DAG:\n%s", plan.format_dag())
 
                                 replan_result = await replanner.replan_subgraph(
                                     steps_to_replan=steps_to_replan,
@@ -258,15 +258,14 @@ class Cortex:
                                     logger.info("  Insert after step: %d", insert_after)
 
                                     # Update plan DAG
-                                    logger.info("  New dependencies from replanner: %s", replan_result.new_dependencies)
+                                    logger.info("  Replanner new_dependencies: %s", replan_result.new_dependencies)
                                     plan.remove_steps(steps_to_replan)
                                     plan.add_steps(
                                         replan_result.new_steps,
                                         replan_result.new_dependencies,
                                         insert_after=insert_after
                                     )
-                                    logger.info("  Plan updated: now %d total steps", len(plan.steps))
-                                    logger.info("  Updated dependencies: %s", plan.dependencies)
+                                    logger.info("  Updated DAG (%d steps):\n%s", len(plan.steps), plan.format_dag())
                                 else:
                                     # Replanner gave up
                                     logger.error("✗ Replanner gave up on step %d", step_idx)
