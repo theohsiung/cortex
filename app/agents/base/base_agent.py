@@ -1,5 +1,5 @@
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, TYPE_CHECKING
 
@@ -9,6 +9,13 @@ if TYPE_CHECKING:
     from google.adk.runners import Runner
     from google.adk.sessions import InMemorySessionService
     from google.genai.types import Content, Part
+
+
+@dataclass
+class ExecutionContext:
+    """Context for a single step execution, isolating state for parallel execution"""
+    step_index: int
+    pending_calls: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass
@@ -61,10 +68,6 @@ class BaseAgent:
         # Event tracking
         self._tool_events: list[dict] = []
 
-        # Step tracking for tool history
-        self._current_step_index: int | None = None
-        self._pending_calls: dict[str, dict] = {}  # call_id -> {tool, args, timestamp}
-
         # Session service (lazy init)
         self._session_service = None
 
@@ -75,7 +78,9 @@ class BaseAgent:
             self._session_service = InMemorySessionService()
         return self._session_service
 
-    async def execute(self, query: str, max_iteration: int = 10) -> AgentResult:
+    async def execute(
+        self, query: str, max_iteration: int = 10, exec_context: ExecutionContext = None
+    ) -> AgentResult:
         """Execute query with automatic retry loop"""
         session_service = self._get_session_service()
         session = await session_service.create_session(
@@ -84,13 +89,15 @@ class BaseAgent:
         )
 
         for i in range(max_iteration):
-            result = await self._run_once(query, session)
+            result = await self._run_once(query, session, exec_context)
             if result.is_complete:
                 return result
 
         return self._handle_max_iteration()
 
-    async def _run_once(self, query: str, session) -> AgentResult:
+    async def _run_once(
+        self, query: str, session, exec_context: ExecutionContext = None
+    ) -> AgentResult:
         """Single execution run"""
         from google.adk.runners import Runner
         from google.genai.types import Content, Part
@@ -110,7 +117,7 @@ class BaseAgent:
             new_message=Content(parts=[Part(text=query)], role="user")
         ):
             events.append(event)
-            self._process_event(event)
+            self._process_event(event, exec_context)
 
             if event.is_final_response():
                 for part in event.content.parts:
@@ -127,7 +134,7 @@ class BaseAgent:
 
         return AgentResult(events=events, output=final_output, is_complete=is_complete)
 
-    def _process_event(self, event) -> None:
+    def _process_event(self, event, exec_context: ExecutionContext = None) -> None:
         """Process event and track tool calls"""
         if not event.content or not event.content.parts:
             return
@@ -135,8 +142,9 @@ class BaseAgent:
         for part in event.content.parts:
             if hasattr(part, 'function_call') and part.function_call:
                 call = part.function_call
-                call_id = f"{call.name}_{len(self._pending_calls)}"
-                self._pending_calls[call_id] = {
+                pending_calls = exec_context.pending_calls if exec_context else {}
+                call_id = f"{call.name}_{len(pending_calls)}"
+                pending_calls[call_id] = {
                     "tool": call.name,
                     "args": dict(call.args) if call.args else {},
                     "timestamp": datetime.now().isoformat()
@@ -153,7 +161,7 @@ class BaseAgent:
                     "name": resp.name
                 })
                 # Record to plan if step is active
-                self._record_tool_to_plan(resp.name, resp.response)
+                self._record_tool_to_plan(resp.name, resp.response, exec_context)
 
     def _has_tool_response(self, events: list, tool_name: str) -> bool:
         """Check if tool call has a response"""
@@ -177,15 +185,20 @@ class BaseAgent:
         """Track tool call/response event"""
         self._tool_events.append(event)
 
-    def _record_tool_to_plan(self, tool_name: str, result: Any) -> None:
+    def _record_tool_to_plan(
+        self, tool_name: str, result: Any, exec_context: ExecutionContext = None
+    ) -> None:
         """Record tool call to plan's step_tool_history"""
-        if self.plan is None or self._current_step_index is None:
+        if self.plan is None or exec_context is None:
             return
+
+        step_index = exec_context.step_index
+        pending_calls = exec_context.pending_calls
 
         # Find matching pending call
         matching_call = None
         matching_id = None
-        for call_id, call_info in self._pending_calls.items():
+        for call_id, call_info in pending_calls.items():
             if call_info["tool"] == tool_name:
                 matching_call = call_info
                 matching_id = call_id
@@ -196,7 +209,7 @@ class BaseAgent:
 
         # Record to plan
         self.plan.add_tool_call(
-            step_index=self._current_step_index,
+            step_index=step_index,
             tool=matching_call["tool"],
             args=matching_call["args"],
             result=result,
@@ -206,10 +219,10 @@ class BaseAgent:
         # Extract and record files
         files = self._extract_files(tool_name, matching_call["args"], result)
         for file_path in files:
-            self.plan.add_file(self._current_step_index, file_path)
+            self.plan.add_file(step_index, file_path)
 
         # Remove from pending
-        del self._pending_calls[matching_id]
+        del pending_calls[matching_id]
 
     def _extract_files(self, tool_name: str, args: dict, result: Any) -> list[str]:
         """Extract file paths from tool call"""
@@ -245,3 +258,27 @@ class BaseAgent:
             "total_responses": len(responses),
             "tools_used": list(set(e["name"] for e in calls))
         }
+
+    @staticmethod
+    def should_include_aliases(model: Any) -> bool:
+        """Check if model supports aliased tool names with special characters.
+
+        Gemini API doesn't support special chars like <|channel|> in function names.
+        gpt-oss models may hallucinate these suffixes and need aliases.
+
+        Args:
+            model: The LLM model instance
+
+        Returns:
+            True if model needs aliased tool names, False otherwise
+        """
+        if model is None:
+            return False
+        model_str = str(model).lower()
+        # Gemini doesn't support special chars in function names
+        if "gemini" in model_str:
+            return False
+        # gpt-oss models may need aliases for hallucinated tool names
+        if "gpt-oss" in model_str or "openai" in model_str:
+            return True
+        return False

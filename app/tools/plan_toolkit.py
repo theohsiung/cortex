@@ -1,3 +1,4 @@
+import functools
 from google.genai.types import FunctionDeclaration
 from app.task.plan import Plan
 
@@ -86,26 +87,29 @@ class PlanToolkit:
         """Return schema list for LlmAgent"""
         return [self.CREATE_PLAN_SCHEMA, self.UPDATE_PLAN_SCHEMA]
 
-    def get_tool_functions(self) -> list:
+    def get_tool_functions(self, include_aliases: bool = False) -> list:
         """Return list of tool functions for LlmAgent.
 
-        Includes aliased versions with common LLM hallucinated suffixes
-        to handle models that output malformed tool names.
+        Args:
+            include_aliases: If True, include aliased versions for handling
+                             LLM hallucinated tool names (for gpt-oss models).
+                             Gemini doesn't support special chars in function names.
         """
         tools = [self.create_plan, self.update_plan]
 
-        # Add aliased tools for common hallucinated suffixes
-        hallucinated_suffixes = ["<|channel|>json", "<|end|>", "<|tool|>"]
-        for suffix in hallucinated_suffixes:
-            tools.append(self._create_aliased_tool(self.create_plan, f"create_plan{suffix}"))
-            tools.append(self._create_aliased_tool(self.update_plan, f"update_plan{suffix}"))
+        if include_aliases:
+            # Add aliased tools for common hallucinated suffixes (gpt-oss specific)
+            hallucinated_suffixes = ["<|channel|>json", "<|end|>", "<|tool|>"]
+            for suffix in hallucinated_suffixes:
+                tools.append(self._create_aliased_tool(self.create_plan, f"create_plan{suffix}"))
+                tools.append(self._create_aliased_tool(self.update_plan, f"update_plan{suffix}"))
 
         return tools
 
     def _create_aliased_tool(self, func, alias_name: str):
         """Create a wrapper function with a custom __name__ for ADK registration."""
+        @functools.wraps(func)
         def wrapper(*args, **kwargs):
             return func(*args, **kwargs)
         wrapper.__name__ = alias_name
-        wrapper.__doc__ = func.__doc__
         return wrapper

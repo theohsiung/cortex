@@ -68,8 +68,13 @@ class TestPlannerAgent:
             agent_factory=my_factory
         )
 
-        # Factory should receive create_plan and update_plan tools
+        # Factory should receive 2 tools (no aliases by default)
         assert len(received_tools) == 2
+
+        # Should include create_plan and update_plan
+        func_names = [f.__name__ for f in received_tools]
+        assert "create_plan" in func_names
+        assert "update_plan" in func_names
 
     def test_extra_tools_included(self):
         """extra_tools should be included in agent tools"""

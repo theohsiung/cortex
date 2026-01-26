@@ -51,8 +51,28 @@ class TestActToolkit:
         assert declarations[0].name == "mark_step"
 
     def test_get_tool_functions(self):
-        """Should return dict with mark_step function"""
+        """Should return list of callable functions"""
         functions = self.toolkit.get_tool_functions()
 
-        assert "mark_step" in functions
-        assert callable(functions["mark_step"])
+        # Should be a list
+        assert isinstance(functions, list)
+
+        # Default: only original tool (no aliases)
+        assert len(functions) == 1
+
+        # All should be callable
+        assert all(callable(f) for f in functions)
+
+        # Should include mark_step
+        func_names = [f.__name__ for f in functions]
+        assert "mark_step" in func_names
+
+    def test_get_tool_functions_with_aliases(self):
+        """Should include aliased versions when include_aliases=True"""
+        functions = self.toolkit.get_tool_functions(include_aliases=True)
+
+        # Should include original tool and aliased versions (1 + 4 = 5)
+        assert len(functions) == 5
+
+        # All should be callable
+        assert all(callable(f) for f in functions)

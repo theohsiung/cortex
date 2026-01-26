@@ -86,5 +86,5 @@ class TestExecutorAgent:
         )
 
         assert extra_tool in received_tools
-        # Should have 1 toolkit tool (mark_step) + 1 extra tool
+        # Should have 1 toolkit tool + 1 extra tool (no aliases by default)
         assert len(received_tools) == 2

@@ -45,8 +45,11 @@ class PlannerAgent(BaseAgent):
         if plan is None:
             raise ValueError(f"Plan not found: {plan_id}")
 
+        # Detect if model supports aliased tool names (Gemini doesn't)
+        include_aliases = self.should_include_aliases(model)
+
         toolkit = PlanToolkit(plan)
-        tools = toolkit.get_tool_functions()
+        tools = toolkit.get_tool_functions(include_aliases=include_aliases)
 
         # Add extra tools (e.g., sandbox tools)
         if extra_tools:

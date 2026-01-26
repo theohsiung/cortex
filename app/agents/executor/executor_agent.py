@@ -1,5 +1,5 @@
 from typing import Any, Callable, TYPE_CHECKING
-from app.agents.base.base_agent import BaseAgent
+from app.agents.base.base_agent import BaseAgent, ExecutionContext
 from app.agents.executor.prompts import EXECUTOR_SYSTEM_PROMPT
 from app.task.task_manager import TaskManager
 from app.tools.act_toolkit import ActToolkit
@@ -45,8 +45,11 @@ class ExecutorAgent(BaseAgent):
         if plan is None:
             raise ValueError(f"Plan not found: {plan_id}")
 
+        # Detect if model supports aliased tool names (Gemini doesn't)
+        include_aliases = self.should_include_aliases(model)
+
         toolkit = ActToolkit(plan)
-        tools = list(toolkit.get_tool_functions().values())
+        tools = toolkit.get_tool_functions(include_aliases=include_aliases)
 
         # Add extra tools (e.g., sandbox tools)
         if extra_tools:
@@ -67,24 +70,20 @@ class ExecutorAgent(BaseAgent):
         else:
             raise ValueError("Either 'model' or 'agent_factory' must be provided")
 
-        super().__init__(
-            agent=agent, tool_functions=toolkit.get_tool_functions(), plan_id=plan_id
-        )
+        # Convert tools list to dict for BaseAgent (only core tools, not aliases)
+        tool_functions = {
+            "mark_step": toolkit.mark_step,
+        }
+        super().__init__(agent=agent, tool_functions=tool_functions, plan_id=plan_id)
 
     async def execute_step(self, step_index: int, context: str = "") -> str:
         """Execute a specific step"""
-        # Set current step for tool history tracking
-        self._current_step_index = step_index
-        self._pending_calls.clear()
+        exec_context = ExecutionContext(step_index=step_index)
 
         step_desc = self.plan.steps[step_index]
         query = f"Execute step {step_index}: {step_desc}"
         if context:
             query += f"\n\nContext: {context}"
 
-        try:
-            result = await self.execute(query)
-            return result.output
-        finally:
-            # Clear step tracking
-            self._current_step_index = None
+        result = await self.execute(query, exec_context=exec_context)
+        return result.output
