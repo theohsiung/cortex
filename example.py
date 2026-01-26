@@ -6,7 +6,20 @@ Usage:
 """
 
 import asyncio
+import logging
+import os
 import warnings
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Configure logging to see Cortex execution status
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S"
+)
 
 # Filter Pydantic warnings
 warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
@@ -15,9 +28,7 @@ from google.adk.models import LiteLlm
 from cortex import Cortex
 
 # Model configuration
-API_BASE_URL = "http://10.136.3.209:8000/v1"
 API_BASE_URL = "http://deltallm-proxy.10.143.156.8.sslip.io"
-MODEL_NAME = "Qwen/Qwen3-4B-Instruct-2507"
 MODEL_NAME = "gpt-oss-20b"
 
 
@@ -26,7 +37,7 @@ async def main():
     model = LiteLlm(
         model=f"openai/{MODEL_NAME}",
         api_base=API_BASE_URL,
-        api_key="sk-LR0Tm1AzzJp75jfzzG1jzQ",
+        api_key=os.getenv("DELTALLM_API_KEY"),
     )
 
     # Create Cortex (default mode)

@@ -85,6 +85,7 @@ class Cortex:
         try:
             # Start sandbox if configured
             if self.sandbox:
+                logger.info("Starting sandbox...")
                 await self.sandbox.start()
 
             # Get sandbox tools
@@ -96,6 +97,8 @@ class Cortex:
             )
 
             # Create plan
+            logger.info("=== PLANNING PHASE ===")
+            logger.info("Creating plan for query: %s", query[:100] + "..." if len(query) > 100 else query)
             planner = PlannerAgent(
                 plan_id=plan_id,
                 model=self.model,
@@ -103,6 +106,9 @@ class Cortex:
                 extra_tools=planner_sandbox_tools,
             )
             await planner.create_plan(query)
+            logger.info("Plan created with %d steps", len(plan.steps))
+            for i, step in enumerate(plan.steps):
+                logger.info("  Step %d: %s", i, step)
 
             # Execute steps with parallel execution
             executor = ExecutorAgent(
@@ -123,6 +129,7 @@ class Cortex:
             available_tools = [t.__name__ if callable(t) else str(t)
                               for t in executor_sandbox_tools]
 
+            logger.info("=== EXECUTION PHASE ===")
             step_outputs: dict[int, str] = {}
             semaphore = asyncio.Semaphore(3)
 
@@ -140,6 +147,8 @@ class Cortex:
                 full_context = f"{query}\n\n{dep_context}" if dep_context else query
 
                 async with semaphore:
+                    step_desc = plan.steps[step_idx] if step_idx < len(plan.steps) else f"Step {step_idx}"
+                    logger.info("▶ Executing step %d: %s", step_idx, step_desc)
                     plan.mark_step(step_idx, step_status="in_progress")
                     last_error = None
                     for attempt in range(max_retries + 1):
@@ -147,6 +156,7 @@ class Cortex:
                             output = await executor.execute_step(
                                 step_idx, context=full_context
                             )
+                            logger.info("✓ Step %d completed", step_idx)
                             return step_idx, output
                         except Exception as e:
                             last_error = e
@@ -172,6 +182,7 @@ class Cortex:
 
                 for step_idx, result in results:
                     if isinstance(result, Exception):
+                        logger.error("✗ Step %d failed with exception: %s", step_idx, result)
                         plan.mark_step(
                             step_idx, step_status="blocked", step_notes=str(result)
                         )
@@ -181,12 +192,25 @@ class Cortex:
 
                         if verifier.verify_step(plan, step_idx):
                             # Verification passed - mark completed
+                            logger.info("✓ Step %d verified - all tool calls confirmed", step_idx)
                             step_outputs[step_idx] = result
                             plan.mark_step(step_idx, step_status="completed")
                         else:
                             # Verification failed - check replan attempts
+                            failed_calls = verifier.get_failed_calls(plan, step_idx)
+                            logger.warning(
+                                "⚠ Step %d verification FAILED - %d pending tool calls detected (hallucination)",
+                                step_idx, len(failed_calls)
+                            )
+                            for call in failed_calls:
+                                logger.warning("  - Pending: %s(%s)", call["tool"], call.get("args", {}))
+
                             attempts = plan.replan_attempts.get(step_idx, 0)
                             if attempts >= ReplannerAgent.MAX_REPLAN_ATTEMPTS:
+                                logger.error(
+                                    "✗ Step %d blocked - max replan attempts (%d) reached",
+                                    step_idx, ReplannerAgent.MAX_REPLAN_ATTEMPTS
+                                )
                                 plan.mark_step(
                                     step_idx,
                                     step_status="blocked",
@@ -196,6 +220,11 @@ class Cortex:
                                 # Replan the failed step and downstream
                                 downstream = plan.get_downstream_steps(step_idx)
                                 steps_to_replan = [step_idx] + downstream
+                                logger.info(
+                                    "🔄 REPLANNING: step %d + %d downstream steps (attempt %d/%d)",
+                                    step_idx, len(downstream), attempts + 1, ReplannerAgent.MAX_REPLAN_ATTEMPTS
+                                )
+                                logger.info("  Steps to replan: %s", steps_to_replan)
 
                                 replan_result = await replanner.replan_subgraph(
                                     steps_to_replan=steps_to_replan,
@@ -204,6 +233,13 @@ class Cortex:
                                 plan.replan_attempts[step_idx] = attempts + 1
 
                                 if replan_result.action == "redesign":
+                                    logger.info(
+                                        "✓ Replanner redesigned with %d new steps",
+                                        len(replan_result.new_steps)
+                                    )
+                                    for i, new_step in enumerate(replan_result.new_steps):
+                                        logger.info("  New step %d: %s", i, new_step)
+
                                     # Find last completed step index
                                     completed_indices = [
                                         i for i, step in enumerate(plan.steps)
@@ -218,8 +254,10 @@ class Cortex:
                                         replan_result.new_dependencies,
                                         insert_after=insert_after
                                     )
+                                    logger.info("  Plan updated: now %d total steps", len(plan.steps))
                                 else:
                                     # Replanner gave up
+                                    logger.error("✗ Replanner gave up on step %d", step_idx)
                                     plan.mark_step(
                                         step_idx,
                                         step_status="blocked",
@@ -227,11 +265,18 @@ class Cortex:
                                     )
 
             # Generate final result by aggregating step outputs
+            progress = plan.get_progress()
+            logger.info("=== AGGREGATION PHASE ===")
+            logger.info(
+                "Aggregating results: %d/%d steps completed, %d blocked",
+                progress["completed"], progress["total"], progress["blocked"]
+            )
             final_result = await self._aggregate_results(query, plan, step_outputs)
 
             # Record result in history
             self.history.append({"role": "assistant", "content": final_result})
 
+            logger.info("=== EXECUTION COMPLETE ===")
             return final_result
 
         finally:
