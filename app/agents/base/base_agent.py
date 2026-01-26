@@ -142,18 +142,22 @@ class BaseAgent:
         for part in event.content.parts:
             if hasattr(part, 'function_call') and part.function_call:
                 call = part.function_call
+                call_time = datetime.now().isoformat()
                 pending_calls = exec_context.pending_calls if exec_context else {}
                 call_id = f"{call.name}_{len(pending_calls)}"
+                call_args = dict(call.args) if call.args else {}
                 pending_calls[call_id] = {
                     "tool": call.name,
-                    "args": dict(call.args) if call.args else {},
-                    "timestamp": datetime.now().isoformat()
+                    "args": call_args,
+                    "timestamp": call_time
                 }
                 self._track_tool_event({
                     "type": "call",
                     "name": call.name,
                     "args": call.args
                 })
+                # Record pending call to plan for verification
+                self._record_pending_call(call.name, call_args, call_time, exec_context)
             elif hasattr(part, 'function_response') and part.function_response:
                 resp = part.function_response
                 self._track_tool_event({
@@ -185,15 +189,30 @@ class BaseAgent:
         """Track tool call/response event"""
         self._tool_events.append(event)
 
+    def _record_pending_call(
+        self, tool_name: str, args: dict, call_time: str, exec_context: ExecutionContext = None
+    ) -> None:
+        """Record pending tool call to plan for verification tracking"""
+        if self.plan is None or exec_context is None:
+            return
+
+        self.plan.add_tool_call_pending(
+            step_index=exec_context.step_index,
+            tool=tool_name,
+            args=args,
+            call_time=call_time
+        )
+
     def _record_tool_to_plan(
         self, tool_name: str, result: Any, exec_context: ExecutionContext = None
     ) -> None:
-        """Record tool call to plan's step_tool_history"""
+        """Update pending tool call to success in plan's step_tool_history"""
         if self.plan is None or exec_context is None:
             return
 
         step_index = exec_context.step_index
         pending_calls = exec_context.pending_calls
+        response_time = datetime.now().isoformat()
 
         # Find matching pending call
         matching_call = None
@@ -207,13 +226,12 @@ class BaseAgent:
         if matching_call is None:
             return
 
-        # Record to plan
-        self.plan.add_tool_call(
+        # Update pending call to success in plan
+        self.plan.update_tool_result(
             step_index=step_index,
-            tool=matching_call["tool"],
-            args=matching_call["args"],
+            tool=tool_name,
             result=result,
-            timestamp=matching_call["timestamp"]
+            response_time=response_time
         )
 
         # Extract and record files

@@ -380,3 +380,251 @@ class TestCortexParallelExecution:
 
         # Max concurrent should be 3 (semaphore limit)
         assert max_concurrent <= 3
+
+
+class TestCortexVerificationAndReplan:
+    """Tests for verification and replan integration"""
+
+    def setup_method(self):
+        TaskManager._plans.clear()
+
+    @pytest.mark.asyncio
+    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch("cortex.ReplannerAgent")
+    @patch("cortex.Verifier")
+    @patch("cortex.ExecutorAgent")
+    @patch("cortex.PlannerAgent")
+    @patch("cortex.Plan")
+    async def test_verification_pass_completes_step(
+        self, mock_plan_cls, mock_planner_cls, mock_executor_cls,
+        mock_verifier_cls, mock_replanner_cls, mock_aggregate
+    ):
+        """Step should be marked completed when verification passes"""
+        plan = Plan(
+            title="Test",
+            steps=["Step A", "Step B"],
+            dependencies={1: [0]}
+        )
+        mock_plan_cls.return_value = plan
+
+        mock_planner = AsyncMock()
+        mock_planner.create_plan = AsyncMock(return_value=None)
+        mock_planner_cls.return_value = mock_planner
+
+        mock_executor = AsyncMock()
+        mock_executor.execute_step = AsyncMock(return_value="Done")
+        mock_executor_cls.return_value = mock_executor
+
+        # Verifier passes
+        mock_verifier = MagicMock()
+        mock_verifier.verify_step = MagicMock(return_value=True)
+        mock_verifier_cls.return_value = mock_verifier
+
+        cortex = Cortex(model=Mock())
+        await cortex.execute("Test query")
+
+        # Both steps should be completed
+        assert plan.step_statuses["Step A"] == "completed"
+        assert plan.step_statuses["Step B"] == "completed"
+
+    @pytest.mark.asyncio
+    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch("cortex.ReplannerAgent")
+    @patch("cortex.Verifier")
+    @patch("cortex.ExecutorAgent")
+    @patch("cortex.PlannerAgent")
+    @patch("cortex.Plan")
+    async def test_verification_fail_triggers_replan(
+        self, mock_plan_cls, mock_planner_cls, mock_executor_cls,
+        mock_verifier_cls, mock_replanner_cls, mock_aggregate
+    ):
+        """Verification failure should trigger replan"""
+        plan = Plan(
+            title="Test",
+            steps=["Step A", "Step B"],
+            dependencies={1: [0]}
+        )
+        mock_plan_cls.return_value = plan
+
+        mock_planner = AsyncMock()
+        mock_planner.create_plan = AsyncMock(return_value=None)
+        mock_planner_cls.return_value = mock_planner
+
+        mock_executor = AsyncMock()
+        mock_executor.execute_step = AsyncMock(return_value="Done")
+        mock_executor_cls.return_value = mock_executor
+
+        # Verifier fails on step 0, then passes
+        mock_verifier = MagicMock()
+        mock_verifier.verify_step = MagicMock(side_effect=[False, True, True])
+        mock_verifier_cls.return_value = mock_verifier
+
+        # Replanner redesigns
+        from app.agents.replanner.replanner_agent import ReplanResult
+        mock_replanner = AsyncMock()
+        mock_replanner.replan_subgraph = AsyncMock(return_value=ReplanResult(
+            action="redesign",
+            new_steps=["New Step A", "New Step B"],
+            new_dependencies={1: [0]}
+        ))
+        mock_replanner_cls.return_value = mock_replanner
+        mock_replanner_cls.MAX_REPLAN_ATTEMPTS = 2  # Set the class constant
+
+        cortex = Cortex(model=Mock())
+        await cortex.execute("Test query")
+
+        # Replanner should have been called
+        mock_replanner.replan_subgraph.assert_called()
+
+    @pytest.mark.asyncio
+    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch("cortex.ReplannerAgent")
+    @patch("cortex.Verifier")
+    @patch("cortex.ExecutorAgent")
+    @patch("cortex.PlannerAgent")
+    @patch("cortex.Plan")
+    async def test_replan_give_up_marks_blocked(
+        self, mock_plan_cls, mock_planner_cls, mock_executor_cls,
+        mock_verifier_cls, mock_replanner_cls, mock_aggregate
+    ):
+        """Replan give_up should mark step as blocked"""
+        plan = Plan(
+            title="Test",
+            steps=["Step A"],
+            dependencies={}
+        )
+        mock_plan_cls.return_value = plan
+
+        mock_planner = AsyncMock()
+        mock_planner.create_plan = AsyncMock(return_value=None)
+        mock_planner_cls.return_value = mock_planner
+
+        mock_executor = AsyncMock()
+        mock_executor.execute_step = AsyncMock(return_value="Done")
+        mock_executor_cls.return_value = mock_executor
+
+        # Verifier fails
+        mock_verifier = MagicMock()
+        mock_verifier.verify_step = MagicMock(return_value=False)
+        mock_verifier_cls.return_value = mock_verifier
+
+        # Replanner gives up
+        from app.agents.replanner.replanner_agent import ReplanResult
+        mock_replanner = AsyncMock()
+        mock_replanner.replan_subgraph = AsyncMock(return_value=ReplanResult(
+            action="give_up",
+            new_steps=[],
+            new_dependencies={}
+        ))
+        mock_replanner_cls.return_value = mock_replanner
+        mock_replanner_cls.MAX_REPLAN_ATTEMPTS = 2  # Set the class constant
+
+        cortex = Cortex(model=Mock())
+        await cortex.execute("Test query")
+
+        # Step should be blocked
+        assert plan.step_statuses["Step A"] == "blocked"
+
+    @pytest.mark.asyncio
+    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch("cortex.ReplannerAgent")
+    @patch("cortex.Verifier")
+    @patch("cortex.ExecutorAgent")
+    @patch("cortex.PlannerAgent")
+    @patch("cortex.Plan")
+    async def test_max_replan_attempts_marks_blocked(
+        self, mock_plan_cls, mock_planner_cls, mock_executor_cls,
+        mock_verifier_cls, mock_replanner_cls, mock_aggregate
+    ):
+        """Should mark blocked after MAX_REPLAN_ATTEMPTS"""
+        plan = Plan(
+            title="Test",
+            steps=["Step A"],
+            dependencies={}
+        )
+        # Simulate already having 2 attempts (max)
+        plan.replan_attempts[0] = 2
+        mock_plan_cls.return_value = plan
+
+        mock_planner = AsyncMock()
+        mock_planner.create_plan = AsyncMock(return_value=None)
+        mock_planner_cls.return_value = mock_planner
+
+        mock_executor = AsyncMock()
+        mock_executor.execute_step = AsyncMock(return_value="Done")
+        mock_executor_cls.return_value = mock_executor
+
+        # Verifier fails
+        mock_verifier = MagicMock()
+        mock_verifier.verify_step = MagicMock(return_value=False)
+        mock_verifier_cls.return_value = mock_verifier
+
+        # Replanner should NOT be called
+        mock_replanner = AsyncMock()
+        mock_replanner_cls.return_value = mock_replanner
+        mock_replanner_cls.MAX_REPLAN_ATTEMPTS = 2  # Set the class constant
+
+        cortex = Cortex(model=Mock())
+        await cortex.execute("Test query")
+
+        # Step should be blocked without calling replanner
+        assert plan.step_statuses["Step A"] == "blocked"
+        mock_replanner.replan_subgraph.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch("cortex.ReplannerAgent")
+    @patch("cortex.Verifier")
+    @patch("cortex.ExecutorAgent")
+    @patch("cortex.PlannerAgent")
+    @patch("cortex.Plan")
+    async def test_downstream_steps_included_in_replan(
+        self, mock_plan_cls, mock_planner_cls, mock_executor_cls,
+        mock_verifier_cls, mock_replanner_cls, mock_aggregate
+    ):
+        """Replan should include failed step and all downstream dependencies"""
+        # 0 -> 1 -> 2
+        plan = Plan(
+            title="Test",
+            steps=["Step A", "Step B", "Step C"],
+            dependencies={1: [0], 2: [1]}
+        )
+        mock_plan_cls.return_value = plan
+
+        mock_planner = AsyncMock()
+        mock_planner.create_plan = AsyncMock(return_value=None)
+        mock_planner_cls.return_value = mock_planner
+
+        mock_executor = AsyncMock()
+        mock_executor.execute_step = AsyncMock(return_value="Done")
+        mock_executor_cls.return_value = mock_executor
+
+        # Verifier fails on step 0
+        mock_verifier = MagicMock()
+        mock_verifier.verify_step = MagicMock(side_effect=[False, True, True, True])
+        mock_verifier_cls.return_value = mock_verifier
+
+        # Track replan calls
+        from app.agents.replanner.replanner_agent import ReplanResult
+        replan_calls = []
+
+        async def capture_replan(steps_to_replan, available_tools):
+            replan_calls.append(steps_to_replan)
+            return ReplanResult(
+                action="redesign",
+                new_steps=["New A", "New B", "New C"],
+                new_dependencies={1: [0], 2: [1]}
+            )
+
+        mock_replanner = AsyncMock()
+        mock_replanner.replan_subgraph = AsyncMock(side_effect=capture_replan)
+        mock_replanner_cls.return_value = mock_replanner
+        mock_replanner_cls.MAX_REPLAN_ATTEMPTS = 2  # Set the class constant
+
+        cortex = Cortex(model=Mock())
+        await cortex.execute("Test query")
+
+        # Should replan steps 0, 1, 2 (failed + downstream)
+        assert len(replan_calls) > 0
+        # First replan should include step 0 and its downstream (1, 2)
+        assert 0 in replan_calls[0]

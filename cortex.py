@@ -9,6 +9,8 @@ logger = logging.getLogger(__name__)
 from app.task.plan import Plan
 from app.agents.planner.planner_agent import PlannerAgent
 from app.agents.executor.executor_agent import ExecutorAgent
+from app.agents.verifier.verifier import Verifier
+from app.agents.replanner.replanner_agent import ReplannerAgent
 from app.sandbox.sandbox_manager import SandboxManager
 
 
@@ -110,6 +112,17 @@ class Cortex:
                 extra_tools=executor_sandbox_tools,
             )
 
+            # Initialize verifier and replanner
+            verifier = Verifier()
+            replanner = ReplannerAgent(
+                plan_id=plan_id,
+                model=self.model,
+            )
+
+            # Get available tool names for replanner
+            available_tools = [t.__name__ if callable(t) else str(t)
+                              for t in executor_sandbox_tools]
+
             step_outputs: dict[int, str] = {}
             semaphore = asyncio.Semaphore(3)
 
@@ -163,8 +176,55 @@ class Cortex:
                             step_idx, step_status="blocked", step_notes=str(result)
                         )
                     else:
-                        step_outputs[step_idx] = result
-                        plan.mark_step(step_idx, step_status="completed")
+                        # Finalize step and verify tool calls
+                        plan.finalize_step(step_idx)
+
+                        if verifier.verify_step(plan, step_idx):
+                            # Verification passed - mark completed
+                            step_outputs[step_idx] = result
+                            plan.mark_step(step_idx, step_status="completed")
+                        else:
+                            # Verification failed - check replan attempts
+                            attempts = plan.replan_attempts.get(step_idx, 0)
+                            if attempts >= ReplannerAgent.MAX_REPLAN_ATTEMPTS:
+                                plan.mark_step(
+                                    step_idx,
+                                    step_status="blocked",
+                                    step_notes="Max replan attempts reached"
+                                )
+                            else:
+                                # Replan the failed step and downstream
+                                downstream = plan.get_downstream_steps(step_idx)
+                                steps_to_replan = [step_idx] + downstream
+
+                                replan_result = await replanner.replan_subgraph(
+                                    steps_to_replan=steps_to_replan,
+                                    available_tools=available_tools
+                                )
+                                plan.replan_attempts[step_idx] = attempts + 1
+
+                                if replan_result.action == "redesign":
+                                    # Find last completed step index
+                                    completed_indices = [
+                                        i for i, step in enumerate(plan.steps)
+                                        if plan.step_statuses[step] == "completed"
+                                    ]
+                                    insert_after = max(completed_indices) if completed_indices else -1
+
+                                    # Update plan DAG
+                                    plan.remove_steps(steps_to_replan)
+                                    plan.add_steps(
+                                        replan_result.new_steps,
+                                        replan_result.new_dependencies,
+                                        insert_after=insert_after
+                                    )
+                                else:
+                                    # Replanner gave up
+                                    plan.mark_step(
+                                        step_idx,
+                                        step_status="blocked",
+                                        step_notes="Replanner gave up"
+                                    )
 
             # Generate final result by aggregating step outputs
             final_result = await self._aggregate_results(query, plan, step_outputs)
