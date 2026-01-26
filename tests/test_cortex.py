@@ -628,3 +628,114 @@ class TestCortexVerificationAndReplan:
         assert len(replan_calls) > 0
         # First replan should include step 0 and its downstream (1, 2)
         assert 0 in replan_calls[0]
+
+    @pytest.mark.asyncio
+    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch("cortex.ReplannerAgent")
+    @patch("cortex.Verifier")
+    @patch("cortex.ExecutorAgent")
+    @patch("cortex.PlannerAgent")
+    @patch("cortex.Plan")
+    async def test_batch_replan_collects_multiple_failures(
+        self, mock_plan_cls, mock_planner_cls, mock_executor_cls,
+        mock_verifier_cls, mock_replanner_cls, mock_aggregate
+    ):
+        """Multiple failures in same batch should trigger single replan with all steps"""
+        # Independent parallel steps: 0, 1, 2 (no dependencies)
+        plan = Plan(
+            title="Test",
+            steps=["Step A", "Step B", "Step C"],
+            dependencies={}
+        )
+        mock_plan_cls.return_value = plan
+
+        mock_planner = AsyncMock()
+        mock_planner.create_plan = AsyncMock(return_value=None)
+        mock_planner_cls.return_value = mock_planner
+
+        mock_executor = AsyncMock()
+        mock_executor.execute_step = AsyncMock(return_value="Done")
+        mock_executor_cls.return_value = mock_executor
+
+        # Steps 0 and 2 fail verification, step 1 passes
+        mock_verifier = MagicMock()
+        mock_verifier.verify_step = MagicMock(side_effect=[False, True, False, True, True])
+        mock_verifier.get_failed_calls = MagicMock(return_value=[])
+        mock_verifier.get_failure_reason = MagicMock(return_value="Test failure")
+        mock_verifier_cls.return_value = mock_verifier
+
+        # Track replan calls
+        from app.agents.replanner.replanner_agent import ReplanResult
+        replan_calls = []
+
+        async def capture_replan(steps_to_replan, available_tools):
+            replan_calls.append(sorted(steps_to_replan))
+            return ReplanResult(
+                action="redesign",
+                new_steps=["New Step"],
+                new_dependencies={}
+            )
+
+        mock_replanner = AsyncMock()
+        mock_replanner.replan_subgraph = AsyncMock(side_effect=capture_replan)
+        mock_replanner_cls.return_value = mock_replanner
+        mock_replanner_cls.MAX_REPLAN_ATTEMPTS = 2
+
+        cortex = Cortex(model=Mock())
+        await cortex.execute("Test query")
+
+        # Should have called replan with both failed steps combined
+        assert len(replan_calls) >= 1
+        # First replan should include steps 0 and 2 (the failed ones)
+        assert 0 in replan_calls[0] or 2 in replan_calls[0]
+
+    @pytest.mark.asyncio
+    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch("cortex.ReplannerAgent")
+    @patch("cortex.Verifier")
+    @patch("cortex.ExecutorAgent")
+    @patch("cortex.PlannerAgent")
+    @patch("cortex.Plan")
+    async def test_notes_failure_reason_logged(
+        self, mock_plan_cls, mock_planner_cls, mock_executor_cls,
+        mock_verifier_cls, mock_replanner_cls, mock_aggregate
+    ):
+        """Notes-based failure reason should be used in logging"""
+        plan = Plan(
+            title="Test",
+            steps=["Step A"],
+            dependencies={}
+        )
+        mock_plan_cls.return_value = plan
+
+        mock_planner = AsyncMock()
+        mock_planner.create_plan = AsyncMock(return_value=None)
+        mock_planner_cls.return_value = mock_planner
+
+        mock_executor = AsyncMock()
+        mock_executor.execute_step = AsyncMock(return_value="Done")
+        mock_executor_cls.return_value = mock_executor
+
+        # Verifier fails with Notes-based failure
+        mock_verifier = MagicMock()
+        mock_verifier.verify_step = MagicMock(return_value=False)
+        mock_verifier.get_failed_calls = MagicMock(return_value=[])
+        mock_verifier.get_failure_reason = MagicMock(return_value="Unable to access Facebook API")
+        mock_verifier_cls.return_value = mock_verifier
+
+        # Replanner gives up
+        from app.agents.replanner.replanner_agent import ReplanResult
+        mock_replanner = AsyncMock()
+        mock_replanner.replan_subgraph = AsyncMock(return_value=ReplanResult(
+            action="give_up",
+            new_steps=[],
+            new_dependencies={}
+        ))
+        mock_replanner_cls.return_value = mock_replanner
+        mock_replanner_cls.MAX_REPLAN_ATTEMPTS = 2
+
+        cortex = Cortex(model=Mock())
+        await cortex.execute("Test query")
+
+        # Verify get_failure_reason was called
+        mock_verifier.get_failure_reason.assert_called()

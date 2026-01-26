@@ -196,14 +196,22 @@ class Cortex:
                             step_outputs[step_idx] = result
                             plan.mark_step(step_idx, step_status="completed")
                         else:
-                            # Verification failed - check replan attempts
+                            # Verification failed - check reason
                             failed_calls = verifier.get_failed_calls(plan, step_idx)
-                            logger.warning(
-                                "⚠ Step %d verification FAILED - %d pending tool calls detected (hallucination)",
-                                step_idx, len(failed_calls)
-                            )
-                            for call in failed_calls:
-                                logger.warning("  - Pending: %s(%s)", call["tool"], call.get("args", {}))
+                            failure_reason = verifier.get_failure_reason(plan, step_idx)
+
+                            if failure_reason:
+                                logger.warning(
+                                    "⚠ Step %d verification FAILED - LLM reported: %s",
+                                    step_idx, failure_reason
+                                )
+                            elif failed_calls:
+                                logger.warning(
+                                    "⚠ Step %d verification FAILED - %d pending tool calls detected (hallucination)",
+                                    step_idx, len(failed_calls)
+                                )
+                                for call in failed_calls:
+                                    logger.warning("  - Pending: %s(%s)", call["tool"], call.get("args", {}))
 
                             attempts = plan.replan_attempts.get(step_idx, 0)
                             if attempts >= ReplannerAgent.MAX_REPLAN_ATTEMPTS:
