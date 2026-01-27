@@ -34,30 +34,40 @@ Cortex 彙整: "房間整理完成！以下是執行摘要..."
 ## 專案架構圖
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                         Cortex                               │
-│                    (主要控制中心)                              │
-│                                                              │
-│  ┌─────────────────┐         ┌─────────────────┐            │
-│  │  PlannerAgent   │         │  ExecutorAgent  │            │
-│  │   (規劃者)       │         │    (執行者)      │            │
-│  │                 │         │                 │            │
-│  │ 負責把任務拆解   │         │ 負責執行每個步驟  │            │
-│  │ 成多個步驟      │         │ 並回報狀態       │            │
-│  └────────┬────────┘         └────────┬────────┘            │
-│           │                           │                      │
-│           │         ┌─────────────────┤                      │
-│           │         │                 │                      │
-│           ▼         ▼                 ▼                      │
-│  ┌─────────────────────────────────────────────┐            │
-│  │                   Plan                       │            │
-│  │                 (執行計畫)                    │            │
-│  │                                              │            │
-│  │  - 步驟清單 (steps)                          │            │
-│  │  - 步驟狀態 (not_started/in_progress/done)   │            │
-│  │  - 步驟依賴關係 (dependencies)               │            │
-│  └─────────────────────────────────────────────┘            │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│                            Cortex                                  │
+│                       (主要控制中心)                                 │
+│                                                                    │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐    │
+│  │  PlannerAgent   │  │  ExecutorAgent  │  │ ReplannerAgent  │    │
+│  │   (規劃者)       │  │    (執行者)      │  │   (重新規劃者)   │    │
+│  │                 │  │                 │  │                 │    │
+│  │ 負責把任務拆解   │  │ 負責執行每個步驟  │  │ 當驗證失敗時     │    │
+│  │ 成多個步驟      │  │ 並回報狀態       │  │ 重新設計步驟     │    │
+│  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘    │
+│           │                    │                    │              │
+│           │    ┌───────────────┴────────────────────┘              │
+│           │    │                                                   │
+│           ▼    ▼                                                   │
+│  ┌────────────────────────────────────────────────────────────┐   │
+│  │                         Plan                                │   │
+│  │                       (執行計畫)                             │   │
+│  │                                                             │   │
+│  │  - 步驟清單 (steps)                                         │   │
+│  │  - 步驟狀態 (not_started/in_progress/completed/blocked)     │   │
+│  │  - 步驟筆記 (step_notes) - 含 [SUCCESS]/[FAIL] 標籤         │   │
+│  │  - 步驟依賴關係 (dependencies)                              │   │
+│  └────────────────────────────────────────────────────────────┘   │
+│                              │                                     │
+│                              ▼                                     │
+│                    ┌─────────────────┐                            │
+│                    │    Verifier     │                            │
+│                    │    (驗證器)      │                            │
+│                    │                 │                            │
+│                    │ 檢查 Notes 標籤  │                            │
+│                    │ 檢查 Tool Calls │                            │
+│                    └─────────────────┘                            │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -75,9 +85,14 @@ cortex/
 │   │   ├── planner/       # 規劃 Agent
 │   │   │   ├── planner_agent.py # PlannerAgent - 負責規劃
 │   │   │   └── prompts.py       # 規劃用的提示詞
-│   │   └── executor/      # 執行 Agent
-│   │       ├── executor_agent.py # ExecutorAgent - 負責執行
-│   │       └── prompts.py       # 執行用的提示詞
+│   │   ├── executor/      # 執行 Agent
+│   │   │   ├── executor_agent.py # ExecutorAgent - 負責執行
+│   │   │   └── prompts.py       # 執行用的提示詞 (含 [SUCCESS]/[FAIL] 格式)
+│   │   ├── verifier/      # 驗證模組
+│   │   │   └── verifier.py      # Verifier - 驗證步驟是否完成
+│   │   └── replanner/     # 重新規劃 Agent
+│   │       ├── replanner_agent.py # ReplannerAgent - 失敗時重新規劃
+│   │       └── prompts.py       # 重新規劃用的提示詞
 │   ├── sandbox/           # Docker 沙盒環境
 │   │   ├── sandbox_manager.py   # SandboxManager - 管理 Docker 容器
 │   │   ├── Dockerfile           # 沙盒 Docker 映像檔
@@ -419,6 +434,70 @@ Step 執行失敗
 
 ---
 
+### 10. Verifier 與 ReplannerAgent
+
+**這是什麼？** 步驟完成後的驗證與重新規劃機制。
+
+**Verifier (`app/agents/verifier/verifier.py`)**
+
+驗證步驟是否真正完成，檢查兩種失敗情況：
+
+| 失敗類型 | 說明 |
+|---------|------|
+| **Notes 失敗** | Executor 在 Notes 中回報 `[FAIL]` 標籤 |
+| **Tool Call 幻覺** | 有 pending 的工具呼叫未被執行 |
+
+**Notes 格式要求：**
+
+Executor 必須在 `mark_step` 的 notes 參數使用以下格式：
+
+```
+[SUCCESS]: 成功完成任務的描述
+[FAIL]: 無法完成任務的原因
+```
+
+例如：
+```
+[SUCCESS]: Posted joke to Facebook successfully
+[FAIL]: Unable to access Facebook API - no credentials available
+```
+
+**ReplannerAgent (`app/agents/replanner/replanner_agent.py`)**
+
+當驗證失敗時，ReplannerAgent 會重新規劃失敗的步驟及其下游步驟：
+
+```
+驗證失敗
+    ↓
+收集失敗步驟 + 所有下游依賴步驟
+    ↓
+ReplannerAgent 分析情況
+    ↓
+選擇行動:
+  - redesign: 重新設計步驟 (例如：改用手動指南)
+  - give_up: 無法完成，標記為 blocked
+```
+
+**DAG 重新規劃流程：**
+
+```
+原本 DAG:
+  [✓] 0: 構思笑話
+  [✓] 1: 撰寫初稿 ← [0]
+  [✓] 2: 審核修改 ← [1]
+  [!] 3: 發布到 Facebook ← [2]  ← 驗證失敗!
+  [ ] 4: 監測互動 ← [3]
+
+重新規劃後:
+  [✓] 0: 構思笑話
+  [✓] 1: 撰寫初稿 ← [0]
+  [✓] 2: 審核修改 ← [1]
+  [ ] 3: 撰寫手動發布指南 ← [2]  ← 新步驟
+  [ ] 4: 監測互動建議 ← [3]      ← 新步驟
+```
+
+---
+
 ## 執行流程圖
 
 ```
@@ -581,18 +660,20 @@ model = LiteLlm(
 
 ## 測試覆蓋
 
-目前共有 **101 個測試**，涵蓋所有核心功能：
+目前共有 **177 個測試**，涵蓋所有核心功能：
 
 | 模組           | 測試數量 | 說明                                     |
 | -------------- | -------- | ---------------------------------------- |
 | TaskManager    | 5        | 計畫存取、刪除、執行緒安全               |
-| Plan           | 20       | 建立、更新、狀態追蹤、依賴關係、工具歷史 |
+| Plan           | 51       | 建立、更新、狀態追蹤、依賴關係、工具歷史、DAG 操作、字串 key 正規化 |
 | PlanToolkit    | 8        | create_plan、update_plan、aliased tools  |
 | ActToolkit     | 8        | mark_step、aliased tools                 |
-| BaseAgent      | 8        | 初始化、工具事件追蹤、Agent 儲存         |
+| BaseAgent      | 12       | 初始化、工具事件追蹤、Agent 儲存、alias 判斷 |
 | PlannerAgent   | 6        | 初始化、工具整合、agent_factory、extra_tools |
 | ExecutorAgent  | 6        | 初始化、工具整合、agent_factory、extra_tools |
-| Cortex         | 17       | 初始化、歷史記錄、factory、sandbox、**並行執行** |
+| Verifier       | 20       | Notes 失敗檢測、tool call 幻覺檢測、失敗原因提取 |
+| ReplannerAgent | 12       | 重新規劃、redesign/give_up 動作、prompt 建構 |
+| Cortex         | 19       | 初始化、歷史記錄、factory、sandbox、**並行執行**、**驗證與重新規劃** |
 | SandboxManager | 16       | Docker 生命週期、MCP 工具、使用者 MCP    |
 
 ---
