@@ -72,8 +72,26 @@ class Cortex:
         else:
             self.sandbox = None
 
-    async def execute(self, query: str) -> str:
-        """Execute a task with planning and execution"""
+    async def execute(
+        self,
+        query: str,
+        on_event: Callable[[str, dict], None] = None
+    ) -> str:
+        """
+        Execute a task with planning and execution.
+        
+        Args:
+            query: The user's goal/task.
+            on_event: Optional callback for streaming events. 
+                      Signature: on_event(event_type: str, data: dict)
+        """
+        async def emit(event_type: str, data: dict = None):
+            if on_event:
+                if asyncio.iscoroutinefunction(on_event):
+                    await on_event(event_type, data or {})
+                else:
+                    on_event(event_type, data or {})
+
         # Record user query in history
         self.history.append({"role": "user", "content": query})
 
@@ -81,6 +99,8 @@ class Cortex:
         plan_id = f"plan_{int(time.time())}"
         plan = Plan()
         TaskManager.set_plan(plan_id, plan)
+        
+        await emit("plan_created", {"plan_id": plan_id})
 
         try:
             # Start sandbox if configured
@@ -107,6 +127,10 @@ class Cortex:
             )
             await planner.create_plan(query)
             logger.info("Plan created with %d steps", len(plan.steps))
+            
+            # Emit initial plan structure
+            await emit("plan_updated", {"plan": plan.format_dag(), "steps": plan.steps, "dependencies": plan.dependencies})
+
             for i, step in enumerate(plan.steps):
                 logger.info("  Step %d: %s", i, step)
 
@@ -150,6 +174,8 @@ class Cortex:
                     step_desc = plan.steps[step_idx] if step_idx < len(plan.steps) else f"Step {step_idx}"
                     logger.info("▶ Executing step %d: %s", step_idx, step_desc)
                     plan.mark_step(step_idx, step_status="in_progress")
+                    await emit("step_status", {"step_idx": step_idx, "status": "in_progress"})
+                    
                     last_error = None
                     for attempt in range(max_retries + 1):
                         try:
@@ -186,6 +212,7 @@ class Cortex:
                         plan.mark_step(
                             step_idx, step_status="blocked", step_notes=str(result)
                         )
+                        await emit("step_status", {"step_idx": step_idx, "status": "blocked", "error": str(result)})
                     else:
                         # Finalize step and verify tool calls
                         plan.finalize_step(step_idx)
@@ -195,6 +222,7 @@ class Cortex:
                             logger.info("✓ Step %d verified - all tool calls confirmed", step_idx)
                             step_outputs[step_idx] = result
                             plan.mark_step(step_idx, step_status="completed")
+                            await emit("step_status", {"step_idx": step_idx, "status": "completed", "output": result})
                         else:
                             # Verification failed - check reason
                             failed_calls = verifier.get_failed_calls(plan, step_idx)
@@ -224,6 +252,7 @@ class Cortex:
                                     step_status="blocked",
                                     step_notes="Max replan attempts reached"
                                 )
+                                await emit("step_status", {"step_idx": step_idx, "status": "blocked", "error": "Max replan attempts reached"})
                             else:
                                 # Replan the failed step and downstream
                                 downstream = plan.get_downstream_steps(step_idx)
@@ -234,6 +263,12 @@ class Cortex:
                                 )
                                 logger.info("  Steps to replan: %s", steps_to_replan)
                                 logger.info("  Before dependencies: %s", dict(plan.dependencies))
+                                
+                                await emit("replanning", {
+                                    "step_idx": step_idx, 
+                                    "downstream": downstream,
+                                    "attempt": attempts + 1
+                                })
 
                                 replan_result = await replanner.replan_subgraph(
                                     steps_to_replan=steps_to_replan,
@@ -266,6 +301,13 @@ class Cortex:
                                         insert_after=insert_after
                                     )
                                     logger.info("  After dependencies: %s", dict(plan.dependencies))
+                                    
+                                    # Emit updated plan
+                                    await emit("plan_updated", {
+                                        "plan": plan.format_dag(),
+                                        "steps": plan.steps,
+                                        "dependencies": plan.dependencies
+                                    })
                                 else:
                                     # Replanner gave up
                                     logger.error("✗ Replanner gave up on step %d", step_idx)
@@ -274,6 +316,11 @@ class Cortex:
                                         step_status="blocked",
                                         step_notes="Replanner gave up"
                                     )
+                                    await emit("step_status", {
+                                        "step_idx": step_idx, 
+                                        "status": "blocked", 
+                                        "error": "Replanner gave up"
+                                    })
 
             # Generate final result by aggregating step outputs
             progress = plan.get_progress()
@@ -288,6 +335,7 @@ class Cortex:
             self.history.append({"role": "assistant", "content": final_result})
 
             logger.info("=== EXECUTION COMPLETE ===")
+            await emit("execution_complete", {"result": final_result})
             return final_result
 
         finally:

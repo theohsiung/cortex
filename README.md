@@ -700,3 +700,48 @@ model = LiteLlm(
 ## 授權
 
 MIT License
+
+---
+
+## Microservice & Frontend
+
+Cortex 提供了 Microservice 模式，讓您可以透過 Web 介面即時監控任務執行。
+
+### 1. 啟動 Backend
+
+Backend 使用 FastAPI 構建，支援 Server-Sent Events (SSE) 即時串流。
+
+```bash
+cd cortex
+# 安裝依賴 (如果尚未安裝)
+uv sync
+
+# 啟動伺服器 (預設 Port 8999)
+uv run uvicorn api:app --reload --port 8999
+```
+
+API 說明：
+- `POST /api/tasks`: 建立新任務
+- `GET /api/tasks/{task_id}/events`: 訂閱任務的 SSE 事件流
+
+### 2. 啟動 Frontend
+
+Frontend 使用 Vite + React + TypeScript 構建。
+
+```bash
+cd cortex/frontend
+# 安裝依賴
+npm install
+
+# 啟動開發伺服器
+npm run dev
+```
+
+啟動後，開啟瀏覽器訪問 `http://localhost:5173` 即可使用。
+
+### 3. 功能特色
+
+- **即時規劃視覺化**: 顯示當前計畫的步驟與狀態 (Not Started, In Progress, Completed)。
+- **即時 Log**: 查看 Agent 的思考過程與工具呼叫細節。
+- **自動重連**: 前端支援斷線重連，並能自動同步完整的事件歷史記錄。
+- **Markdown 渲染**: 最終結果支援 Markdown 格式顯示。
