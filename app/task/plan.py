@@ -438,6 +438,16 @@ class Plan:
                          Missing intents default to "default".
         """
         base_idx = insert_after + 1
+        shift = len(new_steps)
+
+        # Shift existing intents for steps at or after insertion point
+        shifted_intents: dict[int, str] = {}
+        for idx, intent in self.step_intents.items():
+            if idx >= base_idx:
+                shifted_intents[idx + shift] = intent
+            else:
+                shifted_intents[idx] = intent
+        self.step_intents = shifted_intents
 
         # Add new steps
         for i, step in enumerate(new_steps):

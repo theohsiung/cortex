@@ -96,7 +96,8 @@ The system will:
 def build_replan_prompt(
     completed_tool_history: str,
     steps_to_replan: list[tuple[int, str]],
-    available_tools: list[str]
+    available_tools: list[str],
+    available_intents: dict[str, str] = None,
 ) -> str:
     """
     Build the prompt for replanning.
@@ -105,6 +106,7 @@ def build_replan_prompt(
         completed_tool_history: Formatted tool history of completed steps
         steps_to_replan: List of (index, description) for steps to redesign
         available_tools: List of available tool names
+        available_intents: Dict of intent_name -> description for routing
 
     Returns:
         Complete prompt for the replanner
@@ -113,6 +115,21 @@ def build_replan_prompt(
         f"- Step {idx}: {desc}" for idx, desc in steps_to_replan
     )
     tools_section = "\n".join(f"- {tool}" for tool in available_tools)
+
+    # Build available intents section
+    intents_section = ""
+    if available_intents and len(available_intents) > 1:
+        intents_lines = "\n".join(
+            f"- `{name}`: {desc}" for name, desc in available_intents.items()
+        )
+        intents_section = f"""
+---
+
+## Available Intents
+
+Assign one of these intents to each new step in `new_intents`:
+{intents_lines}
+"""
 
     return f"""## Completed Steps (READ-ONLY - DO NOT MODIFY)
 
@@ -129,7 +146,7 @@ def build_replan_prompt(
 ## Available Tools
 
 {tools_section}
-
+{intents_section}
 ---
 
 **Remember:**

@@ -688,6 +688,28 @@ class TestPlanIntents:
         plan = Plan(steps=["A"])
         assert plan.get_step_intent(0) == "default"
 
+    def test_add_steps_reindexes_existing_intents(self):
+        """add_steps() should shift existing intents when inserting in the middle"""
+        plan = Plan(
+            steps=["A", "B", "C"],
+            dependencies={1: [0], 2: [1]},
+            step_intents={0: "generate", 1: "review", 2: "fix"}
+        )
+        plan.mark_step(0, step_status="completed")
+        # Insert 2 new steps after step 0
+        plan.add_steps(
+            new_steps=["X", "Y"],
+            new_dependencies={1: [0]},
+            insert_after=0,
+            new_intents={0: "default", 1: "generate"}
+        )
+        # Steps: A, X, Y, B, C
+        assert plan.step_intents[0] == "generate"   # A (unchanged)
+        assert plan.step_intents[1] == "default"     # X (new)
+        assert plan.step_intents[2] == "generate"    # Y (new)
+        assert plan.step_intents[3] == "review"      # B (shifted from 1)
+        assert plan.step_intents[4] == "fix"         # C (shifted from 2)
+
 
 class TestPlanReplanAttempts:
     """Tests for replan_attempts tracking"""

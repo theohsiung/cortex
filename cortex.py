@@ -156,6 +156,7 @@ class Cortex:
             replanner = ReplannerAgent(
                 plan_id=plan_id,
                 model=self.model,
+                available_intents=self._get_available_intents(),
             )
 
             # Get available tool names for replanner
@@ -257,6 +258,15 @@ class Cortex:
                         plan.finalize_step(step_idx)
 
                         verify_result = verifier.verify_step(plan, step_idx)
+
+                        # For external executors (no tool history), use LLM evaluation
+                        intent = plan.get_step_intent(step_idx)
+                        if verify_result.passed and self._get_executor_factory(intent):
+                            step_desc = plan.steps[step_idx] if step_idx < len(plan.steps) else f"Step {step_idx}"
+                            eval_result = await verifier.evaluate_output(step_desc, result)
+                            if not eval_result.passed:
+                                verify_result = eval_result
+
                         if verify_result.passed:
                             # Verification passed - mark completed
                             logger.info("✓ Step %d verified - all tool calls confirmed", step_idx)

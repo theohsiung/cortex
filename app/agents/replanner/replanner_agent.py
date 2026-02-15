@@ -49,6 +49,7 @@ class ReplannerAgent(BaseAgent):
         plan_id: str,
         model: Any = None,
         agent_factory: Callable[[list], Any] = None,
+        available_intents: dict[str, str] = None,
     ):
         """
         Initialize ReplannerAgent.
@@ -57,7 +58,9 @@ class ReplannerAgent(BaseAgent):
             plan_id: ID of the plan in TaskManager
             model: LLM model (required if agent_factory is None)
             agent_factory: Optional factory function that returns an agent
+            available_intents: Dict of intent_name -> description for routing
         """
+        self.available_intents = available_intents or {}
         plan = TaskManager.get_plan(plan_id)
         if plan is None:
             raise ValueError(f"Plan not found: {plan_id}")
@@ -114,7 +117,8 @@ class ReplannerAgent(BaseAgent):
         return build_replan_prompt(
             completed_tool_history=completed_tool_history,
             steps_to_replan=steps_with_desc,
-            available_tools=available_tools
+            available_tools=available_tools,
+            available_intents=self.available_intents,
         )
 
     def _parse_replan_response(self, response: str) -> ReplanResult:

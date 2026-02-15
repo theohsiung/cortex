@@ -853,3 +853,63 @@ class TestCortexIntentDispatch:
         assert cortex._get_executor_factory("generate") is gen_factory
         assert cortex._get_executor_factory("review") is review_factory
         assert cortex._get_executor_factory("default") is None
+
+    @pytest.mark.asyncio
+    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch("cortex.Verifier")
+    @patch("cortex.PlannerAgent")
+    async def test_external_executor_uses_evaluate_output(
+        self, mock_planner_cls, mock_verifier_cls, mock_aggregate
+    ):
+        """External executor steps should be verified via evaluate_output"""
+        plan = Plan(
+            title="Test",
+            steps=["Generate code"],
+            dependencies={},
+            step_intents={0: "generate"}
+        )
+
+        mock_planner = AsyncMock()
+        mock_planner.create_plan = AsyncMock(return_value=None)
+        mock_planner_cls.return_value = mock_planner
+
+        # Mock verifier: verify_step passes (no tool history), but evaluate_output fails
+        mock_verifier = MagicMock()
+        mock_verifier.verify_step = MagicMock(return_value=VerifyResult(passed=True, notes=""))
+        mock_verifier.evaluate_output = AsyncMock(return_value=VerifyResult(
+            passed=False, notes="[FAIL]: Output was just a description, no actual code"
+        ))
+        mock_verifier.get_failed_calls = MagicMock(return_value=[])
+        mock_verifier.get_failure_reason = MagicMock(return_value="Output was just a description")
+        mock_verifier_cls.return_value = mock_verifier
+
+        # Replanner gives up (to end the loop)
+        from app.agents.replanner.replanner_agent import ReplanResult
+        with patch("cortex.ReplannerAgent") as mock_replanner_cls:
+            mock_replanner = AsyncMock()
+            mock_replanner.replan_subgraph = AsyncMock(return_value=ReplanResult(
+                action="give_up", new_steps=[], new_dependencies={}
+            ))
+            mock_replanner_cls.return_value = mock_replanner
+            mock_replanner_cls.MAX_REPLAN_ATTEMPTS = 2
+
+            # External executor factory
+            mock_agent = MagicMock()
+            mock_exec_result = MagicMock()
+            mock_exec_result.output = "A parser typically works by..."
+
+            with patch("cortex.Plan", return_value=plan):
+                with patch("cortex.ExecutorAgent"):
+                    with patch("app.agents.base.base_agent.BaseAgent.execute", new_callable=AsyncMock, return_value=mock_exec_result):
+                        cortex = Cortex(
+                            model=Mock(),
+                            executors={
+                                "generate": {"factory": lambda: mock_agent, "description": "Gen code"},
+                            }
+                        )
+                        await cortex.execute("Generate parser code")
+
+        # evaluate_output should have been called for external executor
+        mock_verifier.evaluate_output.assert_called()
+        # Step should NOT be completed (evaluate_output failed)
+        assert plan.step_statuses["Generate code"] != "completed"
