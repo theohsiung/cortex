@@ -1,6 +1,7 @@
 """Tests for Verifier - tool call verification logic"""
 
 import pytest
+from unittest.mock import Mock, AsyncMock
 from app.task.plan import Plan
 from app.agents.verifier.verifier import Verifier
 
@@ -16,7 +17,7 @@ class TestVerifierVerifyStep:
         # Step 0 has no tool calls
         result = verifier.verify_step(plan, 0)
 
-        assert result is True
+        assert result.passed is True
 
     def test_verify_pass_when_all_success(self):
         """Should pass when all tool calls are successful"""
@@ -29,7 +30,7 @@ class TestVerifierVerifyStep:
 
         result = verifier.verify_step(plan, 0)
 
-        assert result is True
+        assert result.passed is True
 
     def test_verify_pass_when_multiple_all_success(self):
         """Should pass when multiple tool calls are all successful"""
@@ -44,7 +45,7 @@ class TestVerifierVerifyStep:
 
         result = verifier.verify_step(plan, 0)
 
-        assert result is True
+        assert result.passed is True
 
     def test_verify_fail_when_has_pending(self):
         """Should fail when step has pending tool calls (hallucination)"""
@@ -56,7 +57,7 @@ class TestVerifierVerifyStep:
 
         result = verifier.verify_step(plan, 0)
 
-        assert result is False
+        assert result.passed is False
 
     def test_verify_fail_when_some_pending(self):
         """Should fail when some tool calls are pending even if others succeeded"""
@@ -71,7 +72,7 @@ class TestVerifierVerifyStep:
 
         result = verifier.verify_step(plan, 0)
 
-        assert result is False
+        assert result.passed is False
 
 
 class TestVerifierGetFailedCalls:
@@ -141,7 +142,7 @@ class TestVerifierNotesDetection:
 
         result = verifier.verify_step(plan, 0)
 
-        assert result is False
+        assert result.passed is False
 
     def test_verify_fail_when_notes_has_fail_tag_no_colon(self):
         """Should fail verification when Notes starts with [FAIL] (no colon)"""
@@ -151,7 +152,7 @@ class TestVerifierNotesDetection:
 
         result = verifier.verify_step(plan, 0)
 
-        assert result is False
+        assert result.passed is False
 
     def test_verify_pass_when_notes_has_success_tag(self):
         """Should pass verification when Notes starts with [SUCCESS]"""
@@ -161,7 +162,7 @@ class TestVerifierNotesDetection:
 
         result = verifier.verify_step(plan, 0)
 
-        assert result is True
+        assert result.passed is True
 
     def test_verify_pass_when_notes_empty(self):
         """Should pass verification when Notes is empty (backward compatible)"""
@@ -170,7 +171,7 @@ class TestVerifierNotesDetection:
 
         result = verifier.verify_step(plan, 0)
 
-        assert result is True
+        assert result.passed is True
 
     def test_verify_pass_when_notes_has_no_tag(self):
         """Should pass verification when Notes has no status tag (backward compatible)"""
@@ -180,7 +181,7 @@ class TestVerifierNotesDetection:
 
         result = verifier.verify_step(plan, 0)
 
-        assert result is True
+        assert result.passed is True
 
     def test_verify_fail_notes_takes_priority_over_tool_calls(self):
         """Notes [FAIL] should fail even if no pending tool calls"""
@@ -192,7 +193,7 @@ class TestVerifierNotesDetection:
 
         result = verifier.verify_step(plan, 0)
 
-        assert result is False
+        assert result.passed is False
 
     def test_verify_fail_with_whitespace_before_tag(self):
         """Should handle whitespace before [FAIL] tag"""
@@ -202,7 +203,7 @@ class TestVerifierNotesDetection:
 
         result = verifier.verify_step(plan, 0)
 
-        assert result is False
+        assert result.passed is False
 
 
 class TestVerifierGetFailureReason:
@@ -246,3 +247,89 @@ class TestVerifierGetFailureReason:
         reason = verifier.get_failure_reason(plan, 0)
 
         assert reason == ""
+
+
+class TestVerifierLLMBased:
+    """Tests for LLM-based verification"""
+
+    def test_verify_result_dataclass(self):
+        """VerifyResult should have passed and notes fields"""
+        from app.agents.verifier.verifier import VerifyResult
+        result = VerifyResult(passed=True, notes="[SUCCESS]: Done")
+        assert result.passed is True
+        assert result.notes == "[SUCCESS]: Done"
+
+    def test_verify_step_returns_verify_result(self):
+        """verify_step should return VerifyResult"""
+        from app.agents.verifier.verifier import VerifyResult
+        plan = Plan(steps=["Step A"])
+        verifier = Verifier()
+        result = verifier.verify_step(plan, 0)
+        assert isinstance(result, VerifyResult)
+
+    def test_verify_step_pending_calls_fail(self):
+        """Should fail when pending tool calls exist (hallucination)"""
+        plan = Plan(steps=["Step A"])
+        plan.add_tool_call_pending(0, "write_file", {"path": "x.py"}, "2026-01-01T00:00:00")
+        verifier = Verifier()
+        result = verifier.verify_step(plan, 0)
+        assert result.passed is False
+
+    def test_verify_step_all_calls_success_passes(self):
+        """Should pass when all tool calls succeeded"""
+        plan = Plan(steps=["Step A"])
+        plan.add_tool_call_pending(0, "read_file", {"path": "x.py"}, "2026-01-01T00:00:00")
+        plan.update_tool_result(0, "read_file", "content", "2026-01-01T00:00:01")
+        verifier = Verifier()
+        result = verifier.verify_step(plan, 0)
+        assert result.passed is True
+
+    def test_verify_step_no_calls_passes(self):
+        """Should pass when no tool calls were made"""
+        plan = Plan(steps=["Step A"])
+        verifier = Verifier()
+        result = verifier.verify_step(plan, 0)
+        assert result.passed is True
+
+    @pytest.mark.asyncio
+    async def test_evaluate_output_success(self):
+        """evaluate_output should detect success from executor output"""
+        from app.agents.verifier.verifier import VerifyResult
+        verifier = Verifier(model=Mock())
+        # Mock the LLM call to return success
+        verifier._llm_evaluate = AsyncMock(return_value=VerifyResult(
+            passed=True,
+            notes="[SUCCESS]: Code generated successfully"
+        ))
+        result = await verifier.evaluate_output(
+            step_description="Generate parser code",
+            executor_output="Here is the parser code:\ndef parse(text): ..."
+        )
+        assert result.passed is True
+        assert "[SUCCESS]" in result.notes
+
+    @pytest.mark.asyncio
+    async def test_evaluate_output_failure(self):
+        """evaluate_output should detect failure from executor output"""
+        from app.agents.verifier.verifier import VerifyResult
+        verifier = Verifier(model=Mock())
+        verifier._llm_evaluate = AsyncMock(return_value=VerifyResult(
+            passed=False,
+            notes="[FAIL]: No code was generated"
+        ))
+        result = await verifier.evaluate_output(
+            step_description="Generate parser code",
+            executor_output="A parser typically works by..."
+        )
+        assert result.passed is False
+        assert "[FAIL]" in result.notes
+
+    @pytest.mark.asyncio
+    async def test_evaluate_output_without_model(self):
+        """evaluate_output without model should return pass with generic notes"""
+        verifier = Verifier()  # No model
+        result = await verifier.evaluate_output(
+            step_description="Do something",
+            executor_output="Done"
+        )
+        assert result.passed is True

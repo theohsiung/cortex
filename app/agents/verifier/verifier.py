@@ -1,65 +1,131 @@
-"""Verifier - Pure Python logic for tool call verification"""
+"""Verifier - Tool call verification and LLM-based output evaluation"""
 
+from dataclasses import dataclass
+from typing import Any
 from app.task.plan import Plan
 
 
-class Verifier:
-    """Verifies tool call status for plan steps"""
+@dataclass
+class VerifyResult:
+    """Result from verification"""
+    passed: bool
+    notes: str = ""
 
-    def verify_step(self, plan: Plan, step_idx: int) -> bool:
+
+class Verifier:
+    """Verifies step execution via tool call checking and LLM-based output evaluation"""
+
+    def __init__(self, model: Any = None):
+        self.model = model
+
+    def verify_step(self, plan: Plan, step_idx: int) -> VerifyResult:
         """
         Verify a step's tool call status and Notes content.
-
-        Args:
-            plan: The execution plan
-            step_idx: Index of the step to verify
-
-        Returns:
-            True if pass, False if fail (has [FAIL] in Notes or pending tool calls)
+        Returns VerifyResult instead of bool.
         """
         # Check Notes for [FAIL] marker first
         step = plan.steps[step_idx]
         notes = plan.step_notes.get(step, "").strip()
         if notes.startswith("[FAIL]"):
-            return False  # LLM self-reported failure
+            return VerifyResult(passed=False, notes=notes)
 
         # Check for pending tool calls
         tool_history = plan.step_tool_history.get(step_idx, [])
         for call in tool_history:
             if call.get("status") == "pending":
-                return False  # Has hallucination
+                return VerifyResult(passed=False, notes="Pending tool calls detected (hallucination)")
 
-        return True
+        return VerifyResult(passed=True, notes=notes if notes else "")
 
-    def get_failed_calls(self, plan: Plan, step_idx: int) -> list[dict]:
+    async def evaluate_output(
+        self,
+        step_description: str,
+        executor_output: str,
+    ) -> VerifyResult:
         """
-        Get list of failed (pending) tool calls for a step.
+        Evaluate executor output using LLM to determine success/failure.
 
         Args:
-            plan: The execution plan
-            step_idx: Index of the step
+            step_description: What the step was supposed to do
+            executor_output: Raw output from executor
 
         Returns:
-            List of tool call dicts that are still pending
+            VerifyResult with passed/failed and notes
         """
+        if self.model is None:
+            return VerifyResult(passed=True, notes=f"[SUCCESS]: {executor_output[:100]}")
+
+        return await self._llm_evaluate(step_description, executor_output)
+
+    async def _llm_evaluate(
+        self,
+        step_description: str,
+        executor_output: str,
+    ) -> VerifyResult:
+        """
+        Use LLM to evaluate whether executor output fulfills the step.
+        """
+        from google.adk.agents import LlmAgent
+        from google.adk.runners import Runner
+        from google.adk.sessions import InMemorySessionService
+        from google.genai.types import Content, Part
+
+        prompt = f"""Evaluate whether the following executor output successfully completes the assigned step.
+
+Step: {step_description}
+
+Executor output:
+{executor_output}
+
+Respond with EXACTLY one of:
+- [SUCCESS]: <brief description of what was accomplished>
+- [FAIL]: <reason why the step was not completed>
+"""
+        agent = LlmAgent(
+            name="verifier",
+            model=self.model,
+            instruction="You evaluate whether task outputs meet their requirements. Be concise.",
+        )
+
+        session_service = InMemorySessionService()
+        session = await session_service.create_session(
+            app_name="verifier", user_id="verifier"
+        )
+
+        runner = Runner(
+            agent=agent,
+            session_service=session_service,
+            app_name="verifier",
+        )
+        content = Content(parts=[Part(text=prompt)])
+
+        final_output = ""
+        async for event in runner.run_async(
+            user_id="verifier", session_id=session.id, new_message=content
+        ):
+            if hasattr(event, "content") and event.content:
+                if hasattr(event.content, "parts"):
+                    for part in event.content.parts:
+                        if hasattr(part, "text") and part.text:
+                            final_output = part.text
+
+        # Parse output
+        if final_output.strip().startswith("[FAIL]"):
+            return VerifyResult(passed=False, notes=final_output.strip())
+        else:
+            return VerifyResult(passed=True, notes=final_output.strip())
+
+    # Keep existing helper methods
+    def get_failed_calls(self, plan: Plan, step_idx: int) -> list[dict]:
+        """Get list of failed (pending) tool calls for a step."""
         tool_history = plan.step_tool_history.get(step_idx, [])
         return [call for call in tool_history if call.get("status") == "pending"]
 
     def get_failure_reason(self, plan: Plan, step_idx: int) -> str:
-        """
-        Get the failure reason for a step.
-
-        Args:
-            plan: The execution plan
-            step_idx: Index of the step
-
-        Returns:
-            Failure reason from Notes if [FAIL] tag present, else empty string
-        """
+        """Get the failure reason from Notes if [FAIL] tag present."""
         step = plan.steps[step_idx]
         notes = plan.step_notes.get(step, "").strip()
         if notes.startswith("[FAIL]"):
-            # Extract reason after [FAIL]: or [FAIL]
             if notes.startswith("[FAIL]:"):
                 return notes[7:].strip()
             else:
