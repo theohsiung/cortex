@@ -4,6 +4,7 @@ from unittest.mock import Mock, AsyncMock, patch, MagicMock, call
 from cortex import Cortex
 from app.task.task_manager import TaskManager
 from app.task.plan import Plan
+from app.agents.verifier.verifier import VerifyResult
 from pathlib import Path
 
 
@@ -493,7 +494,7 @@ class TestCortexVerificationAndReplan:
 
         # Verifier passes
         mock_verifier = MagicMock()
-        mock_verifier.verify_step = MagicMock(return_value=True)
+        mock_verifier.verify_step = MagicMock(return_value=VerifyResult(passed=True, notes=""))
         mock_verifier_cls.return_value = mock_verifier
 
         cortex = Cortex(model=Mock())
@@ -532,7 +533,11 @@ class TestCortexVerificationAndReplan:
 
         # Verifier fails on step 0, then passes
         mock_verifier = MagicMock()
-        mock_verifier.verify_step = MagicMock(side_effect=[False, True, True])
+        mock_verifier.verify_step = MagicMock(side_effect=[
+            VerifyResult(passed=False, notes="[FAIL]: test"),
+            VerifyResult(passed=True, notes=""),
+            VerifyResult(passed=True, notes=""),
+        ])
         mock_verifier_cls.return_value = mock_verifier
 
         # Replanner redesigns
@@ -581,7 +586,7 @@ class TestCortexVerificationAndReplan:
 
         # Verifier fails
         mock_verifier = MagicMock()
-        mock_verifier.verify_step = MagicMock(return_value=False)
+        mock_verifier.verify_step = MagicMock(return_value=VerifyResult(passed=False, notes="[FAIL]: test"))
         mock_verifier_cls.return_value = mock_verifier
 
         # Replanner gives up
@@ -632,7 +637,7 @@ class TestCortexVerificationAndReplan:
 
         # Verifier fails
         mock_verifier = MagicMock()
-        mock_verifier.verify_step = MagicMock(return_value=False)
+        mock_verifier.verify_step = MagicMock(return_value=VerifyResult(passed=False, notes="[FAIL]: test"))
         mock_verifier_cls.return_value = mock_verifier
 
         # Replanner should NOT be called
@@ -677,7 +682,12 @@ class TestCortexVerificationAndReplan:
 
         # Verifier fails on step 0
         mock_verifier = MagicMock()
-        mock_verifier.verify_step = MagicMock(side_effect=[False, True, True, True])
+        mock_verifier.verify_step = MagicMock(side_effect=[
+            VerifyResult(passed=False, notes="[FAIL]: test"),
+            VerifyResult(passed=True, notes=""),
+            VerifyResult(passed=True, notes=""),
+            VerifyResult(passed=True, notes=""),
+        ])
         mock_verifier_cls.return_value = mock_verifier
 
         # Track replan calls
@@ -735,7 +745,13 @@ class TestCortexVerificationAndReplan:
 
         # Steps 0 and 2 fail verification, step 1 passes
         mock_verifier = MagicMock()
-        mock_verifier.verify_step = MagicMock(side_effect=[False, True, False, True, True])
+        mock_verifier.verify_step = MagicMock(side_effect=[
+            VerifyResult(passed=False, notes="[FAIL]: test"),
+            VerifyResult(passed=True, notes=""),
+            VerifyResult(passed=False, notes="[FAIL]: test"),
+            VerifyResult(passed=True, notes=""),
+            VerifyResult(passed=True, notes=""),
+        ])
         mock_verifier.get_failed_calls = MagicMock(return_value=[])
         mock_verifier.get_failure_reason = MagicMock(return_value="Test failure")
         mock_verifier_cls.return_value = mock_verifier
@@ -794,7 +810,7 @@ class TestCortexVerificationAndReplan:
 
         # Verifier fails with Notes-based failure
         mock_verifier = MagicMock()
-        mock_verifier.verify_step = MagicMock(return_value=False)
+        mock_verifier.verify_step = MagicMock(return_value=VerifyResult(passed=False, notes="[FAIL]: Unable to access Facebook API"))
         mock_verifier.get_failed_calls = MagicMock(return_value=[])
         mock_verifier.get_failure_reason = MagicMock(return_value="Unable to access Facebook API")
         mock_verifier_cls.return_value = mock_verifier
@@ -815,3 +831,25 @@ class TestCortexVerificationAndReplan:
 
         # Verify get_failure_reason was called
         mock_verifier.get_failure_reason.assert_called()
+
+
+class TestCortexIntentDispatch:
+    """Tests for intent-based executor dispatch"""
+
+    def setup_method(self):
+        TaskManager._plans.clear()
+
+    def test_dispatches_to_correct_factory(self):
+        """Should look up correct factory based on intent"""
+        gen_factory = Mock()
+        review_factory = Mock()
+        cortex = Cortex(
+            model=Mock(),
+            executors={
+                "generate": {"factory": gen_factory, "description": "Gen"},
+                "review": {"factory": review_factory, "description": "Review"},
+            }
+        )
+        assert cortex._get_executor_factory("generate") is gen_factory
+        assert cortex._get_executor_factory("review") is review_factory
+        assert cortex._get_executor_factory("default") is None

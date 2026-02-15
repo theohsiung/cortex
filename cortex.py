@@ -140,6 +140,7 @@ class Cortex:
                 model=self.model,
                 agent_factory=self.planner_factory,
                 extra_tools=planner_sandbox_tools,
+                available_intents=self._get_available_intents(),
             )
             await planner.create_plan(query)
             logger.info("Plan created with %d steps", len(plan.steps))
@@ -150,16 +151,8 @@ class Cortex:
             for i, step in enumerate(plan.steps):
                 logger.info("  Step %d: %s", i, step)
 
-            # Execute steps with parallel execution
-            executor = ExecutorAgent(
-                plan_id=plan_id,
-                model=self.model,
-                agent_factory=self.executor_factory,
-                extra_tools=executor_sandbox_tools,
-            )
-
             # Initialize verifier and replanner
-            verifier = Verifier()
+            verifier = Verifier(model=self.model)
             replanner = ReplannerAgent(
                 plan_id=plan_id,
                 model=self.model,
@@ -195,9 +188,39 @@ class Cortex:
                     last_error = None
                     for attempt in range(max_retries + 1):
                         try:
-                            output = await executor.execute_step(
-                                step_idx, context=full_context
-                            )
+                            # Dispatch to correct executor based on step intent
+                            intent = plan.get_step_intent(step_idx)
+                            factory = self._get_executor_factory(intent)
+                            if factory:
+                                # External executor from executors dict
+                                from app.agents.base.base_agent import BaseAgent as _BaseAgent, ExecutionContext
+                                agent = factory()
+                                executor = _BaseAgent(agent=agent, plan_id=plan_id)
+                                exec_context = ExecutionContext(step_index=step_idx)
+                                query_text = f"Execute step {step_idx}: {step_desc}\n\nContext: {full_context}"
+                                result = await executor.execute(query_text, exec_context=exec_context)
+                                output = result.output
+                            elif self.executor_factory:
+                                # Legacy executor_factory
+                                executor = ExecutorAgent(
+                                    plan_id=plan_id,
+                                    model=self.model,
+                                    agent_factory=self.executor_factory,
+                                    extra_tools=executor_sandbox_tools,
+                                )
+                                output = await executor.execute_step(
+                                    step_idx, context=full_context
+                                )
+                            else:
+                                # Default internal executor
+                                executor = ExecutorAgent(
+                                    plan_id=plan_id,
+                                    model=self.model,
+                                    extra_tools=executor_sandbox_tools,
+                                )
+                                output = await executor.execute_step(
+                                    step_idx, context=full_context
+                                )
                             logger.info("✓ Step %d completed", step_idx)
                             return step_idx, output
                         except Exception as e:
@@ -233,11 +256,12 @@ class Cortex:
                         # Finalize step and verify tool calls
                         plan.finalize_step(step_idx)
 
-                        if verifier.verify_step(plan, step_idx):
+                        verify_result = verifier.verify_step(plan, step_idx)
+                        if verify_result.passed:
                             # Verification passed - mark completed
                             logger.info("✓ Step %d verified - all tool calls confirmed", step_idx)
                             step_outputs[step_idx] = result
-                            plan.mark_step(step_idx, step_status="completed")
+                            plan.mark_step(step_idx, step_status="completed", step_notes=verify_result.notes)
                             await emit("step_status", {"step_idx": step_idx, "status": "completed", "output": result})
                         else:
                             # Verification failed - check reason
@@ -314,7 +338,8 @@ class Cortex:
                                     plan.add_steps(
                                         replan_result.new_steps,
                                         replan_result.new_dependencies,
-                                        insert_after=insert_after
+                                        insert_after=insert_after,
+                                        new_intents=replan_result.new_intents,
                                     )
                                     logger.info("  After dependencies: %s", dict(plan.dependencies))
                                     
