@@ -2,7 +2,7 @@
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from app.agents.base.base_agent import BaseAgent
@@ -27,6 +27,7 @@ class ReplanResult:
     action: str  # "redesign" | "give_up"
     new_steps: list[str]
     new_dependencies: dict[int, list[int]]
+    new_intents: dict[int, str] = field(default_factory=dict)
 
 
 class ReplannerAgent(BaseAgent):
@@ -150,10 +151,14 @@ class ReplannerAgent(BaseAgent):
                 int(k): v for k, v in raw_deps.items()
             }
 
+            raw_intents = data.get("new_intents", {})
+            new_intents = {int(k): v for k, v in raw_intents.items()} if raw_intents else {}
+
             return ReplanResult(
                 action=action,
                 new_steps=new_steps,
-                new_dependencies=new_dependencies
+                new_dependencies=new_dependencies,
+                new_intents=new_intents
             )
         except (json.JSONDecodeError, ValueError, TypeError):
             return ReplanResult(action="give_up", new_steps=[], new_dependencies={})
