@@ -124,7 +124,7 @@ class PlanToolkit:
 
         if include_aliases:
             # Add aliased tools for common hallucinated suffixes (gpt-oss specific)
-            hallucinated_suffixes = ["<|channel|>json", "<|end|>", "<|tool|>"]
+            hallucinated_suffixes = ["<|channel|>json", "<|end|>", "<|tool|>", "json"]
             for suffix in hallucinated_suffixes:
                 tools.append(self._create_aliased_tool(self.create_plan, f"create_plan{suffix}"))
                 tools.append(self._create_aliased_tool(self.update_plan, f"update_plan{suffix}"))

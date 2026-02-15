@@ -259,13 +259,10 @@ class Cortex:
 
                         verify_result = verifier.verify_step(plan, step_idx)
 
-                        # For external executors (no tool history), use LLM evaluation
-                        intent = plan.get_step_intent(step_idx)
-                        if verify_result.passed and self._get_executor_factory(intent):
+                        # LLM evaluation for all steps that passed mechanical check
+                        if verify_result.passed:
                             step_desc = plan.steps[step_idx] if step_idx < len(plan.steps) else f"Step {step_idx}"
-                            eval_result = await verifier.evaluate_output(step_desc, result)
-                            if not eval_result.passed:
-                                verify_result = eval_result
+                            verify_result = await verifier.evaluate_output(step_desc, result)
 
                         if verify_result.passed:
                             # Verification passed - mark completed
@@ -384,6 +381,20 @@ class Cortex:
 
             # Record result in history
             self.history.append({"role": "assistant", "content": final_result})
+
+            logger.info("=== FINAL PLAN STATE ===")
+            for i, step in enumerate(plan.steps):
+                status = plan.step_statuses.get(step, "unknown")
+                intent = plan.step_intents.get(i, "default")
+                notes = plan.step_notes.get(step, "")
+                deps = plan.dependencies.get(i, [])
+                tool_count = len(plan.step_tool_history.get(i, []))
+                files = plan.step_files.get(i, [])
+                logger.info(
+                    "  Step %d [%s] intent=%s deps=%s tools=%d files=%s | %s%s",
+                    i, status, intent, deps, tool_count, files, step,
+                    f" | notes: {notes}" if notes else ""
+                )
 
             logger.info("=== EXECUTION COMPLETE ===")
             await emit("execution_complete", {"result": final_result})
