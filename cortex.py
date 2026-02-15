@@ -46,6 +46,7 @@ class Cortex:
         model: Any = None,
         planner_factory: Callable[[list], Any] = None,
         executor_factory: Callable[[list], Any] = None,
+        executors: dict = None,
         user_id: str = None,
         enable_filesystem: bool = False,
         enable_shell: bool = False,
@@ -53,12 +54,13 @@ class Cortex:
     ):
         if model is None and planner_factory is None:
             raise ValueError("Either 'model' or 'planner_factory' must be provided")
-        if model is None and executor_factory is None:
-            raise ValueError("Either 'model' or 'executor_factory' must be provided")
+        if model is None and executor_factory is None and not executors:
+            raise ValueError("Either 'model', 'executor_factory', or 'executors' must be provided")
 
         self.model = model
         self.planner_factory = planner_factory
         self.executor_factory = executor_factory
+        self.executors = executors or {}
         self.history: list[dict] = []
 
         # Create sandbox manager if any sandbox feature is enabled
@@ -71,6 +73,20 @@ class Cortex:
             )
         else:
             self.sandbox = None
+
+    def _get_executor_factory(self, intent: str):
+        """Get executor factory for an intent, or None if not registered"""
+        entry = self.executors.get(intent)
+        if entry:
+            return entry["factory"]
+        return None
+
+    def _get_available_intents(self) -> dict[str, str]:
+        """Build available intents dict from executors + default"""
+        intents = {"default": "General purpose tasks"}
+        for name, entry in self.executors.items():
+            intents[name] = entry["description"]
+        return intents
 
     async def execute(
         self,

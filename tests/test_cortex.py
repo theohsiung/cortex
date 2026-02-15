@@ -79,6 +79,82 @@ class TestCortex:
             Cortex(planner_factory=Mock())
 
 
+class TestCortexExecutors:
+    """Tests for dynamic executor routing API"""
+
+    def setup_method(self):
+        TaskManager._plans.clear()
+
+    def test_init_with_executors_dict(self):
+        """Should accept executors dict"""
+        factory = Mock()
+        cortex = Cortex(
+            model=Mock(),
+            executors={
+                "generate": {
+                    "factory": factory,
+                    "description": "Generate code",
+                },
+            }
+        )
+        assert "generate" in cortex.executors
+
+    def test_init_without_executors(self):
+        """Should work without executors (backward compat)"""
+        cortex = Cortex(model=Mock())
+        assert cortex.executors == {}
+
+    def test_init_with_model_only(self):
+        """Should not require executor_factory when model is provided"""
+        cortex = Cortex(model=Mock())
+        assert cortex.model is not None
+
+    def test_get_executor_factory_returns_registered(self):
+        """Should return registered factory for known intent"""
+        factory = Mock()
+        cortex = Cortex(
+            model=Mock(),
+            executors={
+                "generate": {"factory": factory, "description": "..."},
+            }
+        )
+        assert cortex._get_executor_factory("generate") is factory
+
+    def test_get_executor_factory_returns_none_for_unknown(self):
+        """Should return None for unknown intent"""
+        cortex = Cortex(model=Mock())
+        assert cortex._get_executor_factory("nonexistent") is None
+
+    def test_available_intents_from_executors(self):
+        """Should build available intents list from executors keys"""
+        cortex = Cortex(
+            model=Mock(),
+            executors={
+                "generate": {"factory": Mock(), "description": "Gen code"},
+                "review": {"factory": Mock(), "description": "Review code"},
+            }
+        )
+        intents = cortex._get_available_intents()
+        assert {"generate", "review", "default"} == set(intents.keys())
+        assert intents["generate"] == "Gen code"
+        assert "default" in intents  # built-in
+
+    def test_available_intents_default_only(self):
+        """Should have only 'default' when no executors provided"""
+        cortex = Cortex(model=Mock())
+        intents = cortex._get_available_intents()
+        assert set(intents.keys()) == {"default"}
+
+    def test_backward_compat_executor_factory(self):
+        """Old executor_factory parameter should still work"""
+        factory = Mock()
+        cortex = Cortex(
+            planner_factory=Mock(),
+            executor_factory=factory
+        )
+        assert cortex.executor_factory is factory
+
+
 class TestCortexSandbox:
     def setup_method(self):
         TaskManager._plans.clear()
