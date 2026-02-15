@@ -43,17 +43,26 @@ async def main():
     # Create Cortex (default mode)
     cortex = Cortex(model=model)
 
-    # --- Custom agent factory example ---
-    # from google.adk.agents import LoopAgent
+    # --- Dynamic executor routing example ---
+    # from app.agents.coding_agent.agent.mistral_vibe._agent import create_coding_agent
     #
-    # def my_planner_factory(tools: list):
-    #     return LoopAgent(
-    #         name="planner",
-    #         model=model,
-    #         tools=tools,  # toolkit tools are injected here
-    #     )
-    #
-    # cortex = Cortex(planner_factory=my_planner_factory, executor_factory=my_executor_factory)
+    # cortex = Cortex(
+    #     model=model,
+    #     executors={
+    #         "generate": {
+    #             "factory": lambda: create_coding_agent("/workspace"),
+    #             "description": "Generate new code",
+    #         },
+    #         "fix": {
+    #             "factory": lambda: create_coding_agent("/workspace"),
+    #             "description": "Fix code based on review feedback",
+    #         },
+    #         "review": {
+    #             "factory": lambda: create_coding_agent("/workspace"),
+    #             "description": "Review code quality and correctness",
+    #         },
+    #     }
+    # )
     # ------------------------------------
 
     # Execute a task
