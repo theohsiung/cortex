@@ -1,6 +1,7 @@
 """Pydantic configuration models for cortex."""
 from __future__ import annotations
 
+import importlib
 import os
 from typing import Annotated, Any, Callable, Literal
 
@@ -71,6 +72,17 @@ class ExecutorEntry(BaseModel):
     factory_module: str
     factory_function: str = "create_agent"
     is_default: bool = False
+
+    def create_executor(self) -> Any:
+        """Import the factory module and call the factory function."""
+        module = importlib.import_module(self.factory_module)
+        factory = getattr(module, self.factory_function)
+        return factory()
+
+    def get_factory(self) -> Callable[[], Any]:
+        """Import the factory module and return the factory callable (without calling it)."""
+        module = importlib.import_module(self.factory_module)
+        return getattr(module, self.factory_function)
 
 
 class TuningConfig(BaseModel):

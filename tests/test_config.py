@@ -1,6 +1,9 @@
 """Tests for app.config Pydantic models."""
 from __future__ import annotations
 
+import sys
+import types
+
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
@@ -245,3 +248,63 @@ class TestTuningConfig:
     def test_rejects_negative_max_replan_attempts(self):
         with pytest.raises(ValidationError):
             TuningConfig(max_replan_attempts=-1)
+
+
+# ---------------------------------------------------------------------------
+# Task 5 – ExecutorEntry.create_executor() and get_factory()
+# ---------------------------------------------------------------------------
+
+class TestExecutorEntryCreateExecutor:
+    """Tests for dynamic import via create_executor / get_factory."""
+
+    FAKE_MODULE = "_fake_executor_module_for_test"
+
+    @pytest.fixture(autouse=True)
+    def _install_fake_module(self):
+        """Insert a throwaway module into sys.modules for the duration of each test."""
+        mod = types.ModuleType(self.FAKE_MODULE)
+        mod.create_agent = lambda: "fake-agent-instance"
+        mod.custom_factory = lambda: "custom-instance"
+        sys.modules[self.FAKE_MODULE] = mod
+        yield
+        sys.modules.pop(self.FAKE_MODULE, None)
+
+    def test_create_executor_imports_and_calls_factory(self):
+        entry = ExecutorEntry(
+            intent="code",
+            description="test",
+            factory_module=self.FAKE_MODULE,
+        )
+        result = entry.create_executor()
+        assert result == "fake-agent-instance"
+
+    def test_create_executor_raises_import_error_on_missing_module(self):
+        entry = ExecutorEntry(
+            intent="code",
+            description="test",
+            factory_module="no_such_module_xyz_999",
+        )
+        with pytest.raises(ImportError):
+            entry.create_executor()
+
+    def test_create_executor_raises_attribute_error_on_missing_function(self):
+        entry = ExecutorEntry(
+            intent="code",
+            description="test",
+            factory_module=self.FAKE_MODULE,
+            factory_function="nonexistent_fn",
+        )
+        with pytest.raises(AttributeError):
+            entry.create_executor()
+
+    def test_get_factory_returns_callable_without_calling_it(self):
+        entry = ExecutorEntry(
+            intent="code",
+            description="test",
+            factory_module=self.FAKE_MODULE,
+            factory_function="custom_factory",
+        )
+        factory = entry.get_factory()
+        assert callable(factory)
+        # Has not been called yet; calling it now should produce the value.
+        assert factory() == "custom-instance"
