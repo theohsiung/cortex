@@ -4,7 +4,11 @@ from __future__ import annotations
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from app.config import MCPStdio, MCPSse, MCPServer, ModelConfig, SandboxConfig
+from app.config import (
+    MCPStdio, MCPSse, MCPServer,
+    ModelConfig, SandboxConfig,
+    ExecutorEntry, TuningConfig,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -159,3 +163,85 @@ class TestSandboxConfig:
         assert cfg.enable_shell is True
         assert cfg.docker_image == "custom:v2"
         assert cfg.user_id == "user-42"
+
+
+# ---------------------------------------------------------------------------
+# Task 4 – ExecutorEntry and TuningConfig
+# ---------------------------------------------------------------------------
+
+class TestExecutorEntry:
+    """ExecutorEntry model tests."""
+
+    def test_valid_config(self):
+        cfg = ExecutorEntry(
+            intent="code",
+            description="Coding executor",
+            factory_module="app.agents.coding_agent",
+        )
+        assert cfg.intent == "code"
+        assert cfg.description == "Coding executor"
+        assert cfg.factory_module == "app.agents.coding_agent"
+
+    def test_defaults(self):
+        cfg = ExecutorEntry(
+            intent="code",
+            description="Coding executor",
+            factory_module="app.agents.coding_agent",
+        )
+        assert cfg.factory_function == "create_agent"
+        assert cfg.is_default is False
+
+    def test_requires_intent(self):
+        with pytest.raises(ValidationError):
+            ExecutorEntry(
+                description="Coding executor",
+                factory_module="app.agents.coding_agent",
+            )
+
+    def test_requires_factory_module(self):
+        with pytest.raises(ValidationError):
+            ExecutorEntry(
+                intent="code",
+                description="Coding executor",
+            )
+
+    def test_is_default_flag(self):
+        cfg = ExecutorEntry(
+            intent="code",
+            description="Coding executor",
+            factory_module="app.agents.coding_agent",
+            is_default=True,
+        )
+        assert cfg.is_default is True
+
+
+class TestTuningConfig:
+    """TuningConfig model tests."""
+
+    def test_defaults(self):
+        cfg = TuningConfig()
+        assert cfg.max_concurrent_steps == 3
+        assert cfg.max_retries == 3
+        assert cfg.max_replan_attempts == 2
+
+    def test_custom_values(self):
+        cfg = TuningConfig(
+            max_concurrent_steps=10,
+            max_retries=5,
+            max_replan_attempts=4,
+        )
+        assert cfg.max_concurrent_steps == 10
+        assert cfg.max_retries == 5
+        assert cfg.max_replan_attempts == 4
+
+    def test_rejects_negative_max_concurrent_steps(self):
+        with pytest.raises(ValidationError):
+            TuningConfig(max_concurrent_steps=-1)
+
+    def test_rejects_negative_max_retries(self):
+        with pytest.raises(ValidationError):
+            TuningConfig(max_retries=-1)
+
+    def test_rejects_negative_max_replan_attempts(self):
+        with pytest.raises(ValidationError):
+            TuningConfig(max_replan_attempts=-1)

@@ -57,3 +57,25 @@ class SandboxConfig(BaseModel):
     enable_shell: bool = False
     docker_image: str = "cortex-sandbox:latest"
     user_id: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Executor and Tuning configuration
+# ---------------------------------------------------------------------------
+
+class ExecutorEntry(BaseModel):
+    """Maps an intent to a concrete executor factory."""
+
+    intent: str
+    description: str
+    factory_module: str
+    factory_function: str = "create_agent"
+    is_default: bool = False
+
+
+class TuningConfig(BaseModel):
+    """Runtime tuning knobs."""
+
+    max_concurrent_steps: int = Field(default=3, ge=0)
+    max_retries: int = Field(default=3, ge=0)
+    max_replan_attempts: int = Field(default=2, ge=0)
