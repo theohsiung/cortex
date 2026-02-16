@@ -4,6 +4,8 @@ from pathlib import Path
 
 import docker
 
+from app.config import SandboxConfig, MCPServer, MCPStdio, MCPSse
+
 if TYPE_CHECKING:
     from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 
@@ -25,30 +27,24 @@ class SandboxManager:
 
     def __init__(
         self,
-        user_id: str | None = None,
-        enable_filesystem: bool = False,
-        enable_shell: bool = False,
-        mcp_servers: list[dict] | None = None,
-        docker_image: str | None = None,
+        config: SandboxConfig,
+        mcp_servers: list[MCPServer] | None = None,
     ):
         """
         Initialize SandboxManager.
 
         Args:
-            user_id: User identifier for userspace directory. Auto-generated if not provided.
-            enable_filesystem: Enable built-in filesystem MCP tool (local, uses @anthropic/mcp-filesystem)
-            enable_shell: Enable built-in shell MCP tool (runs in Docker container)
-            mcp_servers: List of user-provided MCP server configs
-            docker_image: Custom Docker image (default: cortex-sandbox:latest)
+            config: Sandbox configuration (filesystem, shell, docker_image, user_id).
+            mcp_servers: List of typed MCP server configs (MCPStdio or MCPSse).
         """
         # Generate user_id if not provided
-        self.user_id = user_id or f"auto-{uuid.uuid4().hex[:8]}"
+        self.user_id = config.user_id or f"auto-{uuid.uuid4().hex[:8]}"
         self.user_workspace = self.USERSPACE_DIR / self.user_id
 
-        self.enable_filesystem = enable_filesystem
-        self.enable_shell = enable_shell
+        self.enable_filesystem = config.enable_filesystem
+        self.enable_shell = config.enable_shell
         self.mcp_servers = mcp_servers or []
-        self.docker_image = docker_image or self.DEFAULT_IMAGE
+        self.docker_image = config.docker_image
         self._container = None
         self._client = None
         self._filesystem_toolset: "McpToolset | None" = None
@@ -164,25 +160,25 @@ class SandboxManager:
         )
         from mcp import StdioServerParameters
 
-        for server_config in self.mcp_servers:
+        for server in self.mcp_servers:
             toolset = None
 
-            if "url" in server_config:
+            if isinstance(server, MCPSse):
                 # SSE server (remote)
                 toolset = McpToolset(
                     connection_params=SseConnectionParams(
-                        url=server_config["url"],
-                        headers=server_config.get("headers"),
+                        url=server.url,
+                        headers=server.headers or None,
                     )
                 )
-            elif "command" in server_config:
+            elif isinstance(server, MCPStdio):
                 # Stdio server (local, runs outside container)
                 toolset = McpToolset(
                     connection_params=StdioConnectionParams(
                         server_params=StdioServerParameters(
-                            command=server_config["command"],
-                            args=server_config.get("args", []),
-                            env=server_config.get("env"),
+                            command=server.command,
+                            args=server.args,
+                            env=server.env or None,
                         )
                     )
                 )
