@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from app.config import MCPStdio, MCPSse, MCPServer
+from app.config import MCPStdio, MCPSse, MCPServer, ModelConfig, SandboxConfig
 
 
 # ---------------------------------------------------------------------------
@@ -88,3 +88,74 @@ class TestMCPServerDiscriminator:
         ])
         assert isinstance(servers[0], MCPStdio)
         assert isinstance(servers[1], MCPSse)
+
+
+# ---------------------------------------------------------------------------
+# Task 3 – ModelConfig and SandboxConfig
+# ---------------------------------------------------------------------------
+
+class TestModelConfig:
+    """ModelConfig model tests."""
+
+    def test_valid_config(self):
+        cfg = ModelConfig(name="gpt-4", api_base="https://api.openai.com/v1")
+        assert cfg.name == "gpt-4"
+        assert cfg.api_base == "https://api.openai.com/v1"
+
+    def test_defaults(self):
+        cfg = ModelConfig(name="gpt-4", api_base="https://api.openai.com/v1")
+        assert cfg.api_key_env_var == ""
+        assert cfg.temperature == 0.0
+
+    def test_requires_name(self):
+        with pytest.raises(ValidationError):
+            ModelConfig(api_base="https://api.openai.com/v1")
+
+    def test_requires_api_base(self):
+        with pytest.raises(ValidationError):
+            ModelConfig(name="gpt-4")
+
+    def test_resolve_api_key_from_env(self, monkeypatch):
+        monkeypatch.setenv("MY_API_KEY", "secret-123")
+        cfg = ModelConfig(
+            name="gpt-4",
+            api_base="https://api.openai.com/v1",
+            api_key_env_var="MY_API_KEY",
+        )
+        assert cfg.resolve_api_key() == "secret-123"
+
+    def test_resolve_api_key_returns_none_when_not_set(self, monkeypatch):
+        monkeypatch.delenv("MISSING_KEY", raising=False)
+        cfg = ModelConfig(
+            name="gpt-4",
+            api_base="https://api.openai.com/v1",
+            api_key_env_var="MISSING_KEY",
+        )
+        assert cfg.resolve_api_key() is None
+
+    def test_resolve_api_key_returns_none_when_no_env_var(self):
+        cfg = ModelConfig(name="gpt-4", api_base="https://api.openai.com/v1")
+        assert cfg.resolve_api_key() is None
+
+
+class TestSandboxConfig:
+    """SandboxConfig model tests."""
+
+    def test_defaults(self):
+        cfg = SandboxConfig()
+        assert cfg.enable_filesystem is False
+        assert cfg.enable_shell is False
+        assert cfg.docker_image == "cortex-sandbox:latest"
+        assert cfg.user_id is None
+
+    def test_all_fields_set(self):
+        cfg = SandboxConfig(
+            enable_filesystem=True,
+            enable_shell=True,
+            docker_image="custom:v2",
+            user_id="user-42",
+        )
+        assert cfg.enable_filesystem is True
+        assert cfg.enable_shell is True
+        assert cfg.docker_image == "custom:v2"
+        assert cfg.user_id == "user-42"
