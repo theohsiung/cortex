@@ -28,6 +28,7 @@ mock_genai_types.FunctionDeclaration = MockFunctionDeclaration
 
 sys.modules['google.adk'] = MagicMock()
 sys.modules['google.adk.agents'] = mock_adk_agents
+sys.modules['google.adk.models'] = MagicMock()
 sys.modules['google.adk.runners'] = MagicMock()
 sys.modules['google.adk.sessions'] = MagicMock()
 sys.modules['google.genai'] = MagicMock()

@@ -4,6 +4,7 @@ import time
 from typing import Any, Callable, Union
 
 from app.task.task_manager import TaskManager
+from app.config import CortexConfig, SandboxConfig
 
 logger = logging.getLogger(__name__)
 from app.task.plan import Plan
@@ -19,73 +20,63 @@ class Cortex:
     Main orchestrator for the agent framework.
 
     Usage:
-        # Default: creates LlmAgent internally
-        cortex = Cortex(model=model)
+        from app.config import CortexConfig, ModelConfig, SandboxConfig
+
+        # Minimal:
+        config = CortexConfig(model=ModelConfig(name="openai/gpt-4o", api_base="http://localhost/v1"))
+        cortex = Cortex(config)
 
         # With sandbox tools:
-        cortex = Cortex(
-            model=model,
-            user_id="alice",          # Optional, auto-generated if not provided
-            enable_filesystem=True,   # Local filesystem via @anthropic/mcp-filesystem
-            enable_shell=True,        # Shell execution in Docker container
+        config = CortexConfig(
+            model=ModelConfig(name="openai/gpt-4o", api_base="http://localhost/v1"),
+            sandbox=SandboxConfig(enable_filesystem=True, enable_shell=True, user_id="alice"),
         )
+        cortex = Cortex(config)
 
-        # Custom: pass agent factories
-        def my_planner_factory(tools: list):
-            return LoopAgent(name="planner", tools=tools, ...)
-        def my_executor_factory(tools: list):
-            return LoopAgent(name="executor", tools=tools, ...)
-        cortex = Cortex(
-            planner_factory=my_planner_factory,
-            executor_factory=my_executor_factory
-        )
+        result = await cortex.execute("Build a REST API")
     """
 
-    def __init__(
-        self,
-        model: Any = None,
-        planner_factory: Callable[[list], Any] = None,
-        executor_factory: Callable[[list], Any] = None,
-        executors: dict = None,
-        user_id: str = None,
-        enable_filesystem: bool = False,
-        enable_shell: bool = False,
-        mcp_servers: list[dict] = None,
-    ):
-        if model is None and planner_factory is None:
-            raise ValueError("Either 'model' or 'planner_factory' must be provided")
-        if model is None and executor_factory is None and not executors:
-            raise ValueError("Either 'model', 'executor_factory', or 'executors' must be provided")
-
-        self.model = model
-        self.planner_factory = planner_factory
-        self.executor_factory = executor_factory
-        self.executors = executors or {}
+    def __init__(self, config: CortexConfig):
+        self.config = config
+        self._model = None  # Lazy-created LLM
+        self._executor_entries = {e.intent: e for e in config.executors}
         self.history: list[dict] = []
 
         # Create sandbox manager if any sandbox feature is enabled
-        if enable_filesystem or enable_shell or mcp_servers:
-            self.sandbox = SandboxManager(
-                user_id=user_id,
-                enable_filesystem=enable_filesystem,
-                enable_shell=enable_shell,
-                mcp_servers=mcp_servers,
-            )
+        sandbox_needed = (
+            config.sandbox.enable_filesystem
+            or config.sandbox.enable_shell
+            or config.mcp_servers
+        )
+        if sandbox_needed:
+            self.sandbox = SandboxManager(config.sandbox, mcp_servers=config.mcp_servers)
         else:
             self.sandbox = None
 
+    @property
+    def model(self):
+        """Lazy-create LLM model from config."""
+        if self._model is None:
+            from google.adk.models import LiteLlm
+            self._model = LiteLlm(
+                model=self.config.model.name,
+                api_base=self.config.model.api_base,
+                api_key=self.config.model.resolve_api_key(),
+            )
+        return self._model
+
     def _get_executor_factory(self, intent: str):
-        """Get executor factory for an intent, or None if not registered"""
-        entry = self.executors.get(intent)
+        """Get executor factory for an intent via importlib, or None."""
+        entry = self._executor_entries.get(intent)
         if entry:
-            return entry["factory"]
+            return entry.get_factory()
         return None
 
     def _get_available_intents(self) -> dict[str, str]:
         """Build available intents dict from executors + default"""
         intents = {"default": "General purpose tasks"}
-        for name, entry in self.executors.items():
-            intents[name] = entry["description"]
+        for entry in self.config.executors:
+            intents[entry.intent] = entry.description
         return intents
 
     async def execute(
@@ -95,10 +86,10 @@ class Cortex:
     ) -> str:
         """
         Execute a task with planning and execution.
-        
+
         Args:
             query: The user's goal/task.
-            on_event: Optional callback for streaming events. 
+            on_event: Optional callback for streaming events.
                       Signature: on_event(event_type: str, data: dict)
         """
         async def emit(event_type: str, data: dict = None):
@@ -115,7 +106,7 @@ class Cortex:
         plan_id = f"plan_{int(time.time())}"
         plan = Plan()
         TaskManager.set_plan(plan_id, plan)
-        
+
         await emit("plan_created", {"plan_id": plan_id})
 
         try:
@@ -138,13 +129,13 @@ class Cortex:
             planner = PlannerAgent(
                 plan_id=plan_id,
                 model=self.model,
-                agent_factory=self.planner_factory,
+                agent_factory=None,
                 extra_tools=planner_sandbox_tools,
                 available_intents=self._get_available_intents(),
             )
             await planner.create_plan(query)
             logger.info("Plan created with %d steps", len(plan.steps))
-            
+
             # Emit initial plan structure
             await emit("plan_updated", {"plan": plan.format_dag(), "steps": plan.steps, "dependencies": plan.dependencies})
 
@@ -165,12 +156,12 @@ class Cortex:
 
             logger.info("=== EXECUTION PHASE ===")
             step_outputs: dict[int, str] = {}
-            semaphore = asyncio.Semaphore(3)
+            semaphore = asyncio.Semaphore(self.config.tuning.max_concurrent_steps)
 
             async def execute_with_limit(
                 step_idx: int,
-                max_retries: int = 3,
             ) -> tuple[int, Union[str, Exception]]:
+                max_retries = self.config.tuning.max_retries
                 # Build context from dependency outputs
                 deps = plan.dependencies.get(step_idx, [])
                 dep_context = "\n".join(
@@ -185,7 +176,7 @@ class Cortex:
                     logger.info("▶ Executing step %d: %s", step_idx, step_desc)
                     plan.mark_step(step_idx, step_status="in_progress")
                     await emit("step_status", {"step_idx": step_idx, "status": "in_progress"})
-                    
+
                     last_error = None
                     for attempt in range(max_retries + 1):
                         try:
@@ -193,7 +184,7 @@ class Cortex:
                             intent = plan.get_step_intent(step_idx)
                             factory = self._get_executor_factory(intent)
                             if factory:
-                                # External executor from executors dict
+                                # External executor from executors config
                                 from app.agents.base.base_agent import BaseAgent as _BaseAgent, ExecutionContext
                                 agent = factory()
                                 executor = _BaseAgent(agent=agent, plan_id=plan_id)
@@ -201,17 +192,6 @@ class Cortex:
                                 query_text = f"Execute step {step_idx}: {step_desc}\n\nContext: {full_context}"
                                 result = await executor.execute(query_text, exec_context=exec_context)
                                 output = result.output
-                            elif self.executor_factory:
-                                # Legacy executor_factory
-                                executor = ExecutorAgent(
-                                    plan_id=plan_id,
-                                    model=self.model,
-                                    agent_factory=self.executor_factory,
-                                    extra_tools=executor_sandbox_tools,
-                                )
-                                output = await executor.execute_step(
-                                    step_idx, context=full_context
-                                )
                             else:
                                 # Default internal executor
                                 executor = ExecutorAgent(
@@ -289,10 +269,11 @@ class Cortex:
                                     logger.warning("  - Pending: %s(%s)", call["tool"], call.get("args", {}))
 
                             attempts = plan.replan_attempts.get(step_idx, 0)
-                            if attempts >= ReplannerAgent.MAX_REPLAN_ATTEMPTS:
+                            max_replan = self.config.tuning.max_replan_attempts
+                            if attempts >= max_replan:
                                 logger.error(
                                     "✗ Step %d blocked - max replan attempts (%d) reached",
-                                    step_idx, ReplannerAgent.MAX_REPLAN_ATTEMPTS
+                                    step_idx, max_replan
                                 )
                                 plan.mark_step(
                                     step_idx,
@@ -306,13 +287,13 @@ class Cortex:
                                 steps_to_replan = [step_idx] + downstream
                                 logger.info(
                                     "🔄 REPLANNING: step %d + %d downstream steps (attempt %d/%d)",
-                                    step_idx, len(downstream), attempts + 1, ReplannerAgent.MAX_REPLAN_ATTEMPTS
+                                    step_idx, len(downstream), attempts + 1, max_replan
                                 )
                                 logger.info("  Steps to replan: %s", steps_to_replan)
                                 logger.info("  Before dependencies: %s", dict(plan.dependencies))
-                                
+
                                 await emit("replanning", {
-                                    "step_idx": step_idx, 
+                                    "step_idx": step_idx,
                                     "downstream": downstream,
                                     "attempt": attempts + 1
                                 })
@@ -349,7 +330,7 @@ class Cortex:
                                         new_intents=replan_result.new_intents,
                                     )
                                     logger.info("  After dependencies: %s", dict(plan.dependencies))
-                                    
+
                                     # Emit updated plan
                                     await emit("plan_updated", {
                                         "plan": plan.format_dag(),
@@ -365,8 +346,8 @@ class Cortex:
                                         step_notes="Replanner gave up"
                                     )
                                     await emit("step_status", {
-                                        "step_idx": step_idx, 
-                                        "status": "blocked", 
+                                        "step_idx": step_idx,
+                                        "status": "blocked",
                                         "error": "Replanner gave up"
                                     })
 
