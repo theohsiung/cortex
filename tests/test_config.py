@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import textwrap
 import types
 
 import pytest
@@ -11,6 +12,7 @@ from app.config import (
     MCPStdio, MCPSse, MCPServer,
     ModelConfig, SandboxConfig,
     ExecutorEntry, TuningConfig,
+    CortexConfig, get_config_file_path,
 )
 
 
@@ -308,3 +310,194 @@ class TestExecutorEntryCreateExecutor:
         assert callable(factory)
         # Has not been called yet; calling it now should produce the value.
         assert factory() == "custom-instance"
+
+
+# ---------------------------------------------------------------------------
+# Task 6 – CortexConfig with TOML settings source
+# ---------------------------------------------------------------------------
+
+class TestTomlFileSettingsSource:
+    """Tests for loading CortexConfig from TOML files."""
+
+    def test_load_from_toml_file(self, tmp_path, monkeypatch):
+        """TOML with [model] and [sandbox] sections loads correctly."""
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text(textwrap.dedent("""\
+            [model]
+            name = "gpt-4"
+            api_base = "https://api.openai.com/v1"
+            temperature = 0.7
+
+            [sandbox]
+            enable_filesystem = true
+            docker_image = "my-sandbox:v3"
+        """))
+        monkeypatch.setattr("app.config.get_config_file_path", lambda: toml_file)
+
+        cfg = CortexConfig()
+
+        assert cfg.model.name == "gpt-4"
+        assert cfg.model.api_base == "https://api.openai.com/v1"
+        assert cfg.model.temperature == 0.7
+        assert cfg.sandbox.enable_filesystem is True
+        assert cfg.sandbox.docker_image == "my-sandbox:v3"
+
+    def test_load_mcp_servers_from_toml(self, tmp_path, monkeypatch):
+        """TOML with [[mcp_servers]] entries (both stdio and sse) loads via discriminated union."""
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text(textwrap.dedent("""\
+            [model]
+            name = "gpt-4"
+            api_base = "https://api.openai.com/v1"
+
+            [[mcp_servers]]
+            transport = "stdio"
+            command = "node"
+            args = ["server.js"]
+
+            [[mcp_servers]]
+            transport = "sse"
+            url = "http://localhost:8080/sse"
+            headers = {Authorization = "Bearer tok"}
+        """))
+        monkeypatch.setattr("app.config.get_config_file_path", lambda: toml_file)
+
+        cfg = CortexConfig()
+
+        assert len(cfg.mcp_servers) == 2
+        assert isinstance(cfg.mcp_servers[0], MCPStdio)
+        assert cfg.mcp_servers[0].command == "node"
+        assert cfg.mcp_servers[0].args == ["server.js"]
+        assert isinstance(cfg.mcp_servers[1], MCPSse)
+        assert cfg.mcp_servers[1].url == "http://localhost:8080/sse"
+        assert cfg.mcp_servers[1].headers == {"Authorization": "Bearer tok"}
+
+    def test_load_executors_from_toml(self, tmp_path, monkeypatch):
+        """TOML with [[executors]] entries loads correctly."""
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text(textwrap.dedent("""\
+            [model]
+            name = "gpt-4"
+            api_base = "https://api.openai.com/v1"
+
+            [[executors]]
+            intent = "code"
+            description = "Coding agent"
+            factory_module = "app.agents.coding_agent"
+            is_default = true
+
+            [[executors]]
+            intent = "search"
+            description = "Search agent"
+            factory_module = "app.agents.search_agent"
+            factory_function = "build_search"
+        """))
+        monkeypatch.setattr("app.config.get_config_file_path", lambda: toml_file)
+
+        cfg = CortexConfig()
+
+        assert len(cfg.executors) == 2
+        assert cfg.executors[0].intent == "code"
+        assert cfg.executors[0].is_default is True
+        assert cfg.executors[1].intent == "search"
+        assert cfg.executors[1].factory_function == "build_search"
+
+    def test_load_tuning_from_toml(self, tmp_path, monkeypatch):
+        """TOML with [tuning] section loads correctly."""
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text(textwrap.dedent("""\
+            [model]
+            name = "gpt-4"
+            api_base = "https://api.openai.com/v1"
+
+            [tuning]
+            max_concurrent_steps = 8
+            max_retries = 5
+            max_replan_attempts = 4
+        """))
+        monkeypatch.setattr("app.config.get_config_file_path", lambda: toml_file)
+
+        cfg = CortexConfig()
+
+        assert cfg.tuning.max_concurrent_steps == 8
+        assert cfg.tuning.max_retries == 5
+        assert cfg.tuning.max_replan_attempts == 4
+
+
+class TestCortexConfigPriority:
+    """Tests for settings source priority."""
+
+    def test_init_overrides_toml(self, tmp_path, monkeypatch):
+        """Constructor arguments override TOML values."""
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text(textwrap.dedent("""\
+            [model]
+            name = "toml-model"
+            api_base = "https://toml.example.com"
+            temperature = 0.5
+        """))
+        monkeypatch.setattr("app.config.get_config_file_path", lambda: toml_file)
+
+        cfg = CortexConfig(
+            model=ModelConfig(name="init-model", api_base="https://init.example.com"),
+        )
+
+        assert cfg.model.name == "init-model"
+        assert cfg.model.api_base == "https://init.example.com"
+
+    def test_no_config_file_uses_defaults(self, monkeypatch):
+        """When no config file exists, defaults apply (model must be passed via init)."""
+        monkeypatch.setattr("app.config.get_config_file_path", lambda: None)
+
+        cfg = CortexConfig(
+            model=ModelConfig(name="gpt-4", api_base="https://api.openai.com/v1"),
+        )
+
+        assert cfg.model.name == "gpt-4"
+        assert cfg.sandbox == SandboxConfig()
+        assert cfg.mcp_servers == []
+        assert cfg.executors == []
+        assert cfg.tuning == TuningConfig()
+
+
+class TestCortexConfigValidation:
+    """Tests for CortexConfig validation rules."""
+
+    def test_config_file_search_priority(self, tmp_path, monkeypatch):
+        """get_config_file_path() prefers {cwd}/.cortex/config.toml."""
+        cortex_dir = tmp_path / ".cortex"
+        cortex_dir.mkdir()
+        config_file = cortex_dir / "config.toml"
+        config_file.write_text("[model]\nname = 'x'\napi_base = 'y'\n")
+        monkeypatch.chdir(tmp_path)
+
+        result = get_config_file_path()
+
+        assert result == config_file
+
+    def test_rejects_duplicate_executor_intents(self, tmp_path, monkeypatch):
+        """Two executors with the same intent should raise ValidationError."""
+        monkeypatch.setattr("app.config.get_config_file_path", lambda: None)
+
+        with pytest.raises(ValidationError, match="Duplicate executor intent"):
+            CortexConfig(
+                model=ModelConfig(name="gpt-4", api_base="https://api.openai.com/v1"),
+                executors=[
+                    ExecutorEntry(intent="code", description="A", factory_module="mod_a"),
+                    ExecutorEntry(intent="code", description="B", factory_module="mod_b"),
+                ],
+            )
+
+    def test_allows_unique_executor_intents(self, tmp_path, monkeypatch):
+        """Two executors with different intents should work fine."""
+        monkeypatch.setattr("app.config.get_config_file_path", lambda: None)
+
+        cfg = CortexConfig(
+            model=ModelConfig(name="gpt-4", api_base="https://api.openai.com/v1"),
+            executors=[
+                ExecutorEntry(intent="code", description="A", factory_module="mod_a"),
+                ExecutorEntry(intent="search", description="B", factory_module="mod_b"),
+            ],
+        )
+
+        assert len(cfg.executors) == 2
