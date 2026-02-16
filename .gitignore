@@ -16,5 +16,8 @@ wheels/
 .env
 .env.*
 
+# User config (copy config.toml.example to config.toml)
+config.toml
+
 # local files
 docs/

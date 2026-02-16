@@ -1,9 +1,10 @@
 # Cortex Configuration
+# Copy this file to config.toml and fill in your values.
 
 [model]
-name = "openai/gpt-oss-20b"
-api_base = "http://deltallm-proxy.10.143.156.8.sslip.io/v1"
-api_key_env_var = "DELTALLM_API_KEY"
+name = "openai/your-model-name"
+api_base = "http://localhost:8000/v1"
+api_key_env_var = "YOUR_API_KEY"
 
 [sandbox]
 enable_filesystem = false
