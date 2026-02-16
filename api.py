@@ -17,8 +17,8 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 from dotenv import load_dotenv
 
-from google.adk.models import LiteLlm
 from cortex import Cortex
+from app.config import CortexConfig
 
 # Load environment variables
 load_dotenv()
@@ -37,10 +37,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Model configuration
-API_BASE_URL = "http://deltallm-proxy.10.143.156.8.sslip.io/v1"
-MODEL_NAME = "gpt-oss-20b"
 
 # Store task events for SSE (history + real-time)
 # task_id -> List[dict]
@@ -117,12 +113,8 @@ async def run_cortex_task(task_id: str, query: str):
 
     try:
         # Initialize Cortex
-        model = LiteLlm(
-            model=f"openai/{MODEL_NAME}",
-            api_base=API_BASE_URL,
-            api_key=os.getenv("DELTALLM_API_KEY"),
-        )
-        cortex = Cortex(model=model)
+        config = CortexConfig()
+        cortex = Cortex(config)
 
         # Define event handler
         async def on_event(event_type: str, data: dict):

@@ -1,0 +1,35 @@
+# Cortex Configuration
+
+[model]
+name = "openai/gpt-oss-20b"
+api_base = "http://deltallm-proxy.10.143.156.8.sslip.io/v1"
+api_key_env_var = "DELTALLM_API_KEY"
+
+[sandbox]
+enable_filesystem = false
+enable_shell = false
+docker_image = "cortex-sandbox:latest"
+
+[tuning]
+max_concurrent_steps = 3
+max_retries = 3
+max_replan_attempts = 2
+
+# MCP Server examples (uncomment to use):
+# [[mcp_servers]]
+# transport = "sse"
+# url = "http://example.com/mcp"
+# headers = { "Authorization" = "Bearer token" }
+
+# [[mcp_servers]]
+# transport = "stdio"
+# command = "python"
+# args = ["-m", "my_mcp_server"]
+
+# Executor examples (uncomment to use):
+# [[executors]]
+# intent = "generate"
+# description = "Generate new code"
+# factory_module = "app.agents.coding_agent.agent.mistral_vibe._agent"
+# factory_function = "create_coding_agent"
+# is_default = true
