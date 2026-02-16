@@ -39,8 +39,8 @@ MCPServer = Annotated[MCPStdio | MCPSse, Field(discriminator="transport")]
 class ModelConfig(BaseModel):
     """LLM model configuration."""
 
-    name: str
-    api_base: str
+    name: str = Field(description="Model identifier, e.g. 'openai/gpt-oss-20b'")
+    api_base: str = Field(description="API base URL")
     api_key_env_var: str = ""
     temperature: float = 0.0
 
@@ -67,22 +67,20 @@ class SandboxConfig(BaseModel):
 class ExecutorEntry(BaseModel):
     """Maps an intent to a concrete executor factory."""
 
-    intent: str
-    description: str
-    factory_module: str
+    intent: str = Field(description="Intent name for routing, e.g. 'generate'")
+    description: str = Field(description="Human-readable description")
+    factory_module: str = Field(description="Dotted module path to the factory")
     factory_function: str = "create_agent"
     is_default: bool = False
-
-    def create_executor(self) -> Any:
-        """Import the factory module and call the factory function."""
-        module = importlib.import_module(self.factory_module)
-        factory = getattr(module, self.factory_function)
-        return factory()
 
     def get_factory(self) -> Callable[[], Any]:
         """Import the factory module and return the factory callable (without calling it)."""
         module = importlib.import_module(self.factory_module)
         return getattr(module, self.factory_function)
+
+    def create_executor(self) -> Any:
+        """Import the factory module and call the factory function."""
+        return self.get_factory()()
 
 
 class TuningConfig(BaseModel):
