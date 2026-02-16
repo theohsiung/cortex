@@ -423,6 +423,15 @@ class TestTomlFileSettingsSource:
         assert cfg.tuning.max_retries == 5
         assert cfg.tuning.max_replan_attempts == 4
 
+    def test_invalid_toml_raises_runtime_error(self, tmp_path, monkeypatch):
+        """Malformed TOML should raise RuntimeError with file path."""
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text("this is [not valid toml =")
+        monkeypatch.setattr("app.config.get_config_file_path", lambda: toml_file)
+
+        with pytest.raises(RuntimeError, match="Invalid TOML"):
+            CortexConfig()
+
 
 class TestCortexConfigPriority:
     """Tests for settings source priority."""
@@ -475,7 +484,7 @@ class TestCortexConfigValidation:
 
         assert result == config_file
 
-    def test_rejects_duplicate_executor_intents(self, tmp_path, monkeypatch):
+    def test_rejects_duplicate_executor_intents(self, monkeypatch):
         """Two executors with the same intent should raise ValidationError."""
         monkeypatch.setattr("app.config.get_config_file_path", lambda: None)
 
@@ -488,7 +497,7 @@ class TestCortexConfigValidation:
                 ],
             )
 
-    def test_allows_unique_executor_intents(self, tmp_path, monkeypatch):
+    def test_allows_unique_executor_intents(self, monkeypatch):
         """Two executors with different intents should work fine."""
         monkeypatch.setattr("app.config.get_config_file_path", lambda: None)
 
