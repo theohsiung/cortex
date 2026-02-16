@@ -34,40 +34,49 @@ Cortex 彙整: "房間整理完成！以下是執行摘要..."
 ## 專案架構圖
 
 ```
-┌───────────────────────────────────────────────────────────────────┐
-│                            Cortex                                  │
-│                       (主要控制中心)                                 │
-│                                                                    │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐    │
-│  │  PlannerAgent   │  │  ExecutorAgent  │  │ ReplannerAgent  │    │
-│  │   (規劃者)       │  │    (執行者)      │  │   (重新規劃者)   │    │
-│  │                 │  │                 │  │                 │    │
-│  │ 負責把任務拆解   │  │ 負責執行每個步驟  │  │ 當驗證失敗時     │    │
-│  │ 成多個步驟      │  │ 並回報狀態       │  │ 重新設計步驟     │    │
-│  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘    │
-│           │                    │                    │              │
-│           │    ┌───────────────┴────────────────────┘              │
-│           │    │                                                   │
-│           ▼    ▼                                                   │
-│  ┌────────────────────────────────────────────────────────────┐   │
-│  │                         Plan                                │   │
-│  │                       (執行計畫)                             │   │
-│  │                                                             │   │
-│  │  - 步驟清單 (steps)                                         │   │
-│  │  - 步驟狀態 (not_started/in_progress/completed/blocked)     │   │
-│  │  - 步驟筆記 (step_notes) - 含 [SUCCESS]/[FAIL] 標籤         │   │
-│  │  - 步驟依賴關係 (dependencies)                              │   │
-│  └────────────────────────────────────────────────────────────┘   │
-│                              │                                     │
-│                              ▼                                     │
-│                    ┌─────────────────┐                            │
-│                    │    Verifier     │                            │
-│                    │    (驗證器)      │                            │
-│                    │                 │                            │
-│                    │ 檢查 Notes 標籤  │                            │
-│                    │ 檢查 Tool Calls │                            │
-│                    └─────────────────┘                            │
-└───────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                              Cortex                                    │
+│                          (主要控制中心)                                  │
+│                                                                        │
+│  ┌─────────────────┐                          ┌─────────────────┐      │
+│  │  PlannerAgent   │                          │ ReplannerAgent  │      │
+│  │   (規劃者)       │                          │   (重新規劃者)   │      │
+│  │                 │                          │                 │      │
+│  │ 負責把任務拆解   │                          │ 當驗證失敗時     │      │
+│  │ 成多個步驟      │                          │ 重新設計步驟     │      │
+│  │ 並分配 intent   │                          │                 │      │
+│  └────────┬────────┘                          └────────┬────────┘      │
+│           │                                            │               │
+│           ▼                                            │               │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │                          Plan (DAG)                               │  │
+│  │                                                                   │  │
+│  │  - 步驟清單 (steps) + 步驟意圖 (step_intents)                     │  │
+│  │  - 步驟狀態 (not_started/in_progress/completed/blocked)           │  │
+│  │  - 步驟筆記 (step_notes) - Verifier LLM 產生                     │  │
+│  │  - 步驟依賴關係 (dependencies)                                    │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+│           │                                                            │
+│           ▼                                                            │
+│  ┌─────────────────────── Intent Routing ──────────────────────────┐  │
+│  │                                                                  │  │
+│  │  intent == "default"     intent == "generate"/"review"/"fix"     │  │
+│  │        ↓                          ↓                              │  │
+│  │  ┌──────────────┐      ┌───────────────────────┐                │  │
+│  │  │ ExecutorAgent │      │   外部 Executor        │                │  │
+│  │  │  (內部執行者)  │      │  (MistralCodingAgent  │                │  │
+│  │  │              │      │   或其他 ADK Agent)    │                │  │
+│  │  └──────────────┘      └───────────────────────┘                │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+│           │                                                            │
+│           ▼                                                            │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │                       Verifier (驗證器)                           │  │
+│  │                                                                   │  │
+│  │  1. verify_step()      - 機械檢查 (Notes 標籤 + Tool Call 狀態)   │  │
+│  │  2. evaluate_output()  - LLM 評估 (產生 [SUCCESS]/[FAIL] notes)  │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -76,23 +85,25 @@ Cortex 彙整: "房間整理完成！以下是執行摘要..."
 
 ```
 cortex/
-├── cortex.py              # 主程式入口 - Cortex 類別
-├── example.py             # 執行範例
+├── cortex.py              # 主程式入口 - Cortex 類別 (含 Intent Routing)
+├── example.py             # 執行範例 (含外部 Executor 設定)
 ├── app/
 │   ├── agents/            # Agent 相關程式碼
 │   │   ├── base/          # 基礎 Agent
-│   │   │   └── base_agent.py    # BaseAgent - 所有 Agent 的父類別
+│   │   │   └── base_agent.py    # BaseAgent - 包裝任意 ADK Agent
 │   │   ├── planner/       # 規劃 Agent
-│   │   │   ├── planner_agent.py # PlannerAgent - 負責規劃
+│   │   │   ├── planner_agent.py # PlannerAgent - 負責規劃 + 分配 intent
 │   │   │   └── prompts.py       # 規劃用的提示詞
-│   │   ├── executor/      # 執行 Agent
-│   │   │   ├── executor_agent.py # ExecutorAgent - 負責執行
-│   │   │   └── prompts.py       # 執行用的提示詞 (含 [SUCCESS]/[FAIL] 格式)
+│   │   ├── executor/      # 內部執行 Agent
+│   │   │   ├── executor_agent.py # ExecutorAgent - 預設執行者
+│   │   │   └── prompts.py       # 執行用的提示詞
 │   │   ├── verifier/      # 驗證模組
-│   │   │   └── verifier.py      # Verifier - 驗證步驟是否完成
-│   │   └── replanner/     # 重新規劃 Agent
-│   │       ├── replanner_agent.py # ReplannerAgent - 失敗時重新規劃
-│   │       └── prompts.py       # 重新規劃用的提示詞
+│   │   │   └── verifier.py      # Verifier - 機械驗證 + LLM 評估
+│   │   ├── replanner/     # 重新規劃 Agent
+│   │   │   ├── replanner_agent.py # ReplannerAgent - 失敗時重新規劃
+│   │   │   └── prompts.py       # 重新規劃用的提示詞
+│   │   └── coding_agent/  # 外部 Executor 範例
+│   │       └── agent/mistral_vibe/  # MistralVibeAgent (ADK LlmAgent)
 │   ├── sandbox/           # Docker 沙盒環境
 │   │   ├── sandbox_manager.py   # SandboxManager - 管理 Docker 容器
 │   │   ├── Dockerfile           # 沙盒 Docker 映像檔
@@ -100,11 +111,10 @@ cortex/
 │   │       ├── filesystem_server.py # 檔案系統工具
 │   │       └── shell_server.py      # Shell 執行工具
 │   ├── task/              # 任務管理
-│   │   ├── plan.py        # Plan 類別 - 儲存執行計畫
+│   │   ├── plan.py        # Plan 類別 - 儲存執行計畫 (含 intent)
 │   │   └── task_manager.py # TaskManager - 全域計畫管理器
 │   └── tools/             # LLM 可呼叫的工具
-│       ├── plan_toolkit.py # 規劃工具 (create_plan, update_plan)
-│       └── act_toolkit.py  # 執行工具 (mark_step)
+│       └── plan_toolkit.py # 規劃工具 (create_plan, update_plan)
 ├── templates/             # 提示詞模板
 ├── tests/                 # 測試程式碼
 │   └── conftest.py        # 測試設定與 Mock
@@ -123,48 +133,48 @@ cortex/
 
 - 接收使用者的任務
 - 創建一個新的 Plan (計畫)
-- 呼叫 PlannerAgent 來規劃步驟
+- 呼叫 PlannerAgent 來規劃步驟並分配 intent
+- **Intent 路由**: 根據步驟的 intent 分派到不同的 Executor
 - **並行執行**步驟 (根據 DAG 依賴關係，使用 `Semaphore(3)` 控制並行數)
 - **自動重試**失敗的步驟 (最多 3 次嘗試)
+- **Verifier LLM 驗證**: 每個步驟完成後由 Verifier 評估產出
 - 使用 **Aggregator** 將各步驟輸出彙整成最終結果
 
 ```python
-# 使用範例 - 預設 LlmAgent
+# 使用範例 - 預設模式 (所有步驟用內部 ExecutorAgent)
 from cortex import Cortex
 
 cortex = Cortex(model=your_llm_model)
 result = await cortex.execute("幫我寫一個計算機程式")
 print(result)
 
+# 動態 Executor 路由 - 不同 intent 分派到不同 Executor
+from app.agents.coding_agent.agent.mistral_vibe._agent import create_coding_agent
+
+cortex = Cortex(
+    model=your_llm_model,
+    executors={
+        "generate": {
+            "factory": lambda: create_coding_agent("/workspace",
+                model_name="openai/gpt-oss-20b", api_base="http://..."),
+            "description": "Generate new code",
+        },
+        "review": {
+            "factory": lambda: create_coding_agent("/workspace",
+                model_name="openai/gpt-oss-20b", api_base="http://..."),
+            "description": "Review code quality and correctness",
+        },
+    },
+)
+# Planner 會根據 available_intents 自動為步驟分配 intent
+# intent="default" 的步驟走內部 ExecutorAgent
+# intent="generate"/"review" 的步驟走外部 Executor
+
 # 使用 Sandbox 模式 - Docker 隔離執行
 cortex = Cortex(
     model=your_llm_model,
-    workspace="./my-project",    # 掛載到 Docker 的目錄
     enable_filesystem=True,      # 啟用檔案系統工具
     enable_shell=True,           # 啟用 Shell 執行工具
-)
-
-# 進階使用 - 自訂 Agent Factory
-# 使用 factory 函數可以讓你的自訂 Agent 自動獲得 toolkit 工具
-from google.adk.agents import LoopAgent
-
-def my_planner_factory(tools: list):
-    return LoopAgent(
-        name="planner",
-        model=your_llm_model,
-        tools=tools,  # toolkit 工具會自動注入
-    )
-
-def my_executor_factory(tools: list):
-    return LoopAgent(
-        name="executor",
-        model=your_llm_model,
-        tools=tools,  # toolkit 工具會自動注入
-    )
-
-cortex = Cortex(
-    planner_factory=my_planner_factory,
-    executor_factory=my_executor_factory
 )
 ```
 
@@ -206,42 +216,57 @@ BaseAgent (父類別)
 **它做什麼？**
 
 - 分析使用者的任務
-- 把任務拆解成多個具體步驟
-- 使用 `create_plan` 工具來建立計畫
+- 把任務拆解成多個具體步驟，建立依賴關係 (DAG)
+- **為每個步驟分配 intent** — 決定由哪個 Executor 執行該步驟
+- 使用 `create_plan` 工具來建立計畫（含 steps、dependencies、intents）
 
-**例子：**
+**Intent 分配：**
+
+當 Cortex 註冊了外部 Executor 時，PlannerAgent 會收到 `available_intents` 資訊，並在規劃時為每個步驟選擇最適合的 executor：
 
 ```
-輸入: "做一個網站"
+輸入: "開發一個計算機程式"
 
 PlannerAgent 輸出:
-  步驟 1: 設計網站架構
-  步驟 2: 撰寫 HTML 結構
-  步驟 3: 加入 CSS 樣式
-  步驟 4: 加入 JavaScript 互動
-  步驟 5: 測試網站功能
+  步驟 0: 分析需求            → intent: "default"   (內部 ExecutorAgent)
+  步驟 1: 生成程式碼           → intent: "generate"  (外部 CodingAgent)
+  步驟 2: 審核程式碼品質       → intent: "review"    (外部 CodingAgent)
+  步驟 3: 修復發現的問題       → intent: "fix"       (外部 CodingAgent)
+  步驟 4: 彙整結果             → intent: "default"   (內部 ExecutorAgent)
 ```
+
+> **注意：** 如果沒有註冊外部 Executor，所有步驟的 intent 預設為 `"default"`，全部由內部 ExecutorAgent 執行。
 
 ---
 
 ### 4. ExecutorAgent (`app/agents/executor/executor_agent.py`)
 
-**這是什麼？** 負責「做」的 Agent。
+**這是什麼？** 負責「做」的內部 Agent（預設 Executor）。
 
 **它做什麼？**
 
-- 接收一個步驟
-- 執行該步驟
-- 使用 `mark_step` 工具回報狀態 (進行中/完成/卡住)
+- 接收一個步驟的描述和上下文，執行並回傳結果（純文字輸出）
+- **純執行者** — 只負責「做事」，不管理任何 plan 狀態
 
-**狀態說明：**
+**與之前版本的差異：**
+
+| 項目 | 之前 | 現在 |
+|------|------|------|
+| 步驟狀態管理 | Executor 透過 `mark_step` 工具標記 | **Cortex** 機械式標記 |
+| Notes 撰寫 | Executor LLM 透過 `mark_step` 工具寫入 | **Verifier LLM** 透過 `evaluate_output()` 產生 |
+| 工具 | 有 ActToolkit (mark_step 等) | **無** plan 管理工具 |
+| 角色 | 執行 + 狀態管理 | **純執行** |
+
+**步驟狀態由 Cortex 統一管理：**
 
 ```
 not_started  → 還沒開始
-in_progress  → 正在進行中
-completed    → 已完成 ✓
-blocked      → 卡住了，無法繼續 ✗
+in_progress  → Cortex 標記（開始執行時）
+completed    → Cortex 標記（Verifier 驗證通過後）
+blocked      → Cortex 標記（執行失敗或驗證失敗時）
 ```
+
+**外部 Executor：** 除了內部 ExecutorAgent，Cortex 也可以將步驟路由到外部 ADK Agent（如 MistralCodingAgent），透過 `executors` 參數註冊。外部 Executor 同樣只需負責執行，不需管理 plan 狀態。
 
 ---
 
@@ -321,14 +346,10 @@ ExecutorAgent 執行計畫 ← 從 TaskManager 取出
 
 提供給 **PlannerAgent** 使用的工具：
 
-- `create_plan`: 創建新計畫
+- `create_plan`: 創建新計畫（含步驟、依賴關係、intent 分配）
 - `update_plan`: 更新現有計畫
 
-#### ActToolkit (`app/tools/act_toolkit.py`)
-
-提供給 **ExecutorAgent** 使用的工具：
-
-- `mark_step`: 標記步驟狀態
+> **注意：** ActToolkit (`mark_step`) 已移除。步驟狀態現由 Cortex 機械式管理，notes 由 Verifier LLM 產生。
 
 ---
 
@@ -434,33 +455,76 @@ Step 執行失敗
 
 ---
 
-### 10. Verifier 與 ReplannerAgent
+### 10. Dynamic Executor Routing (動態路由)
+
+**這是什麼？** 讓 Cortex 根據步驟的 intent 將工作分派到不同的 Executor。
+
+**核心概念：**
+
+```
+Planner 規劃時分配 intent:
+  步驟 0: 分析需求        → intent: "default"   → 內部 ExecutorAgent
+  步驟 1: 生成程式碼       → intent: "generate"  → 外部 CodingAgent
+  步驟 2: 審核程式碼       → intent: "review"    → 外部 CodingAgent
+  步驟 3: 修復問題         → intent: "fix"       → 外部 CodingAgent
+```
+
+**Executor 類型：**
+
+| 類型 | Intent | 建立方式 | 說明 |
+|------|--------|---------|------|
+| 內部 | `default` | Cortex 自動建立 | 預設的 ExecutorAgent |
+| 外部 | 自訂（`generate`/`review`/...） | 使用者提供 factory | 任意 ADK Agent |
+
+**外部 Executor 只需滿足：**
+
+1. 繼承或包裝 ADK Agent（LlmAgent, LoopAgent 等）
+2. 由 factory 函數建立（每次呼叫回傳新實例）
+3. 不需管理 Plan 狀態 — Cortex 統一處理
+
+**使用方式：**
+
+```python
+cortex = Cortex(
+    model=model,
+    executors={
+        "generate": {
+            "factory": lambda: create_coding_agent("/workspace"),
+            "description": "Generate new code",   # Planner 看到的描述
+        },
+    },
+)
+```
+
+---
+
+### 11. Verifier 與 ReplannerAgent
 
 **這是什麼？** 步驟完成後的驗證與重新規劃機制。
 
 **Verifier (`app/agents/verifier/verifier.py`)**
 
-驗證步驟是否真正完成，檢查兩種失敗情況：
+每個步驟完成後，**不論是內部 ExecutorAgent 還是外部 Executor**，都經過兩階段驗證：
 
-| 失敗類型 | 說明 |
-|---------|------|
-| **Notes 失敗** | Executor 在 Notes 中回報 `[FAIL]` 標籤 |
-| **Tool Call 幻覺** | 有 pending 的工具呼叫未被執行 |
+| 階段 | 方法 | 類型 | 適用範圍 | 說明 |
+|------|------|------|---------|------|
+| 1 | `verify_step()` | 純 Python 邏輯 | 所有步驟 | 檢查 Notes `[FAIL]` 標籤、檢查 pending tool calls |
+| 2 | `evaluate_output()` | LLM 呼叫 | 所有步驟 | 評估 executor 輸出是否完成步驟，產生 notes |
 
-**Notes 格式要求：**
-
-Executor 必須在 `mark_step` 的 notes 參數使用以下格式：
+**Notes 由 Verifier LLM 統一產生：**
 
 ```
 [SUCCESS]: 成功完成任務的描述
 [FAIL]: 無法完成任務的原因
 ```
 
-例如：
-```
-[SUCCESS]: Posted joke to Facebook successfully
-[FAIL]: Unable to access Facebook API - no credentials available
-```
+**與之前版本的差異：**
+
+| 項目 | 之前 | 現在 |
+|------|------|------|
+| Notes 來源 | Executor LLM 透過 `mark_step` 工具寫入 | **Verifier LLM** 透過 `evaluate_output()` 產生 |
+| `evaluate_output()` 適用範圍 | 僅外部 Executor | **所有步驟**（內部 + 外部） |
+| Verifier 角色 | 輔助檢查 | **步驟品質的唯一評審者** |
 
 **ReplannerAgent (`app/agents/replanner/replanner_agent.py`)**
 
@@ -539,9 +603,11 @@ ReplannerAgent 分析情況
 │                                       │
 │  while 有待執行步驟:                   │
 │    1. 找出所有 ready 步驟              │
-│    2. 並行執行 (最多 3 個同時)         │
-│    3. 失敗自動重試 (最多 3 次)         │
-│    4. 累積 step_outputs               │
+│    2. Intent 路由 → 選擇 Executor     │
+│    3. 並行執行 (最多 3 個同時)         │
+│    4. Verifier 驗證 (機械 + LLM)      │
+│    5. 失敗 → Replanner 重新規劃       │
+│    6. 累積 step_outputs               │
 └────────┬─────────────────────────────┘
          │
          ▼
@@ -660,21 +726,20 @@ model = LiteLlm(
 
 ## 測試覆蓋
 
-目前共有 **177 個測試**，涵蓋所有核心功能：
+目前共有 **214 個測試**，涵蓋所有核心功能：
 
 | 模組           | 測試數量 | 說明                                     |
 | -------------- | -------- | ---------------------------------------- |
 | TaskManager    | 5        | 計畫存取、刪除、執行緒安全               |
-| Plan           | 51       | 建立、更新、狀態追蹤、依賴關係、工具歷史、DAG 操作、字串 key 正規化 |
-| PlanToolkit    | 8        | create_plan、update_plan、aliased tools  |
-| ActToolkit     | 8        | mark_step、aliased tools                 |
+| Plan           | 62       | 建立、更新、狀態追蹤、依賴關係、工具歷史、DAG 操作、字串 key 正規化、**intent 管理** |
+| PlanToolkit    | 14       | create_plan、update_plan、aliased tools、**intent 分配** |
 | BaseAgent      | 12       | 初始化、工具事件追蹤、Agent 儲存、alias 判斷 |
-| PlannerAgent   | 6        | 初始化、工具整合、agent_factory、extra_tools |
+| PlannerAgent   | 10       | 初始化、工具整合、agent_factory、extra_tools、**available_intents** |
 | ExecutorAgent  | 6        | 初始化、工具整合、agent_factory、extra_tools |
-| Verifier       | 20       | Notes 失敗檢測、tool call 幻覺檢測、失敗原因提取 |
-| ReplannerAgent | 12       | 重新規劃、redesign/give_up 動作、prompt 建構 |
-| Cortex         | 19       | 初始化、歷史記錄、factory、sandbox、**並行執行**、**驗證與重新規劃** |
-| SandboxManager | 16       | Docker 生命週期、MCP 工具、使用者 MCP    |
+| Verifier       | 28       | Notes 失敗檢測、tool call 幻覺檢測、失敗原因提取、**LLM evaluate_output** |
+| ReplannerAgent | 20       | 重新規劃、redesign/give_up 動作、prompt 建構、**intent 傳遞** |
+| Cortex         | 36       | 初始化、歷史記錄、factory、sandbox、並行執行、驗證與重新規劃、**intent dispatch**、**外部 executor** |
+| SandboxManager | 21       | Docker 生命週期、MCP 工具、使用者 MCP    |
 
 ---
 

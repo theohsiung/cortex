@@ -67,4 +67,34 @@ For a task "Develop a web application", the plan could be:
 title: Develop a web application
 steps: ["Requirements gathering", "System design", "Database design", "Frontend development", "Backend development", "Testing", "Deployment"]
 dependencies: {1: [0], 2: [0], 3: [1], 4: [1], 5: [3, 4], 6: [5]}
+intents: {"0": "default", "1": "generate", "2": "generate", "3": "review", "4": "generate", "5": "generate", "6": "default"}
 """
+
+
+def build_intent_prompt_section(intents: dict[str, str]) -> str:
+    """Build a prompt section describing available intent types.
+
+    If intents only has "default", returns empty string (no intent section needed).
+    Otherwise, generates a section listing all available intent types for the planner.
+
+    Args:
+        intents: Dict mapping intent names to their descriptions.
+
+    Returns:
+        A prompt section string, or empty string if only default intent exists.
+    """
+    if not intents or (len(intents) == 1 and "default" in intents):
+        return ""
+
+    lines = [
+        "## Step Intent Types",
+        "",
+        "For each step, you MUST assign an \"intent\" field to indicate which executor should handle it.",
+        "Use the `intents` parameter in create_plan to specify intent for each step.",
+        "",
+        "Available intent types:",
+    ]
+    for name, description in intents.items():
+        lines.append(f"- {name}: {description}")
+
+    return "\n".join(lines)

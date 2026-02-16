@@ -29,6 +29,10 @@ class PlanToolkit:
                     "type": "object",
                     "description": 'Step dependencies as DAG. Format: {"step_index": [list of prerequisite step indices]}. Example: {"0": [], "1": [0], "2": [0], "3": [1, 2]} means step 0 has no deps, step 1 and 2 depend on step 0, step 3 depends on both 1 and 2. Every step index must be included as a key.',
                 },
+                "intents": {
+                    "type": "object",
+                    "description": 'Map of step index to executor intent type. Format: {"0": "generate", "1": "review", "2": "default"}. Use "default" for general tasks.',
+                },
             },
             "required": ["title", "steps", "dependencies"],
         },
@@ -50,14 +54,32 @@ class PlanToolkit:
                     "type": "object",
                     "description": 'New dependencies as DAG. Format: {"step_index": [list of prerequisite step indices]}. Every step index must be included as a key.',
                 },
+                "intents": {
+                    "type": "object",
+                    "description": 'Map of step index to executor intent type. Format: {"0": "generate", "1": "review", "2": "default"}. Use "default" for general tasks.',
+                },
             },
         },
     )
 
+    @staticmethod
+    def _normalize_intents(intents: dict) -> dict[int, str]:
+        """Normalize intents dict to ensure all keys are integers.
+
+        JSON parsing from LLM converts dict keys to strings, so we convert them back.
+        """
+        if not intents:
+            return {}
+        return {int(k): v for k, v in intents.items()}
+
     def create_plan(
-        self, title: str, steps: list[str], dependencies: dict[int, list[int]] = None
+        self,
+        title: str,
+        steps: list[str],
+        dependencies: dict[int, list[int]] = None,
+        intents: dict[int, str] = None,
     ) -> str:
-        """Create a new plan with title, steps, and optional dependencies"""
+        """Create a new plan with title, steps, optional dependencies and intents"""
         fallback_used = False
         if dependencies is None and len(steps) > 1:
             dependencies = {i: [i - 1] for i in range(1, len(steps))}
@@ -67,7 +89,8 @@ class PlanToolkit:
                 f"Using sequential fallback: {dependencies}\033[0m"
             )
 
-        self.plan.update(title=title, steps=steps, dependencies=dependencies)
+        normalized_intents = self._normalize_intents(intents) if intents else None
+        self.plan.update(title=title, steps=steps, dependencies=dependencies, step_intents=normalized_intents)
         result = f"Plan created:\n{self.plan.format()}"
         if fallback_used:
             result += "\n\nNote: Dependencies were auto-generated as sequential. Consider providing explicit dependencies for parallel execution."
@@ -78,9 +101,11 @@ class PlanToolkit:
         title: str = None,
         steps: list[str] = None,
         dependencies: dict[int, list[int]] = None,
+        intents: dict[int, str] = None,
     ) -> str:
         """Update existing plan"""
-        self.plan.update(title=title, steps=steps, dependencies=dependencies)
+        normalized_intents = self._normalize_intents(intents) if intents else None
+        self.plan.update(title=title, steps=steps, dependencies=dependencies, step_intents=normalized_intents)
         return f"Plan updated:\n{self.plan.format()}"
 
     def get_tool_declarations(self) -> list[FunctionDeclaration]:
@@ -99,7 +124,7 @@ class PlanToolkit:
 
         if include_aliases:
             # Add aliased tools for common hallucinated suffixes (gpt-oss specific)
-            hallucinated_suffixes = ["<|channel|>json", "<|end|>", "<|tool|>"]
+            hallucinated_suffixes = ["<|channel|>json", "<|end|>", "<|tool|>", "json"]
             for suffix in hallucinated_suffixes:
                 tools.append(self._create_aliased_tool(self.create_plan, f"create_plan{suffix}"))
                 tools.append(self._create_aliased_tool(self.update_plan, f"update_plan{suffix}"))

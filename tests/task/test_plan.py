@@ -594,6 +594,123 @@ class TestPlanFormatToolHistory:
         assert "file1.py" in output or "file2.py" in output
 
 
+class TestPlanIntents:
+    """Tests for step intent tracking"""
+
+    def test_default_intents_are_default(self):
+        """All steps should default to 'default' intent"""
+        plan = Plan(steps=["Step A", "Step B"])
+        assert plan.step_intents == {0: "default", 1: "default"}
+
+    def test_custom_intents(self):
+        """Should accept custom intents"""
+        plan = Plan(
+            steps=["Generate code", "Review code"],
+            step_intents={0: "generate", 1: "review"}
+        )
+        assert plan.step_intents[0] == "generate"
+        assert plan.step_intents[1] == "review"
+
+    def test_partial_intents_fills_default(self):
+        """Missing intents should default to 'default'"""
+        plan = Plan(
+            steps=["Step A", "Step B", "Step C"],
+            step_intents={1: "generate"}
+        )
+        assert plan.step_intents[0] == "default"
+        assert plan.step_intents[1] == "generate"
+        assert plan.step_intents[2] == "default"
+
+    def test_update_with_intents(self):
+        """update() should accept and set intents"""
+        plan = Plan(steps=["Old step"])
+        plan.update(
+            steps=["New A", "New B"],
+            step_intents={0: "generate", 1: "review"}
+        )
+        assert plan.step_intents == {0: "generate", 1: "review"}
+
+    def test_update_without_intents_resets_to_default(self):
+        """update() with new steps but no intents should default all to 'default'"""
+        plan = Plan(steps=["A"], step_intents={0: "generate"})
+        plan.update(steps=["B", "C"])
+        assert plan.step_intents == {0: "default", 1: "default"}
+
+    def test_remove_steps_updates_intents(self):
+        """remove_steps() should remove intents and re-index"""
+        plan = Plan(
+            steps=["A", "B", "C"],
+            dependencies={1: [0], 2: [1]},
+            step_intents={0: "generate", 1: "review", 2: "fix"}
+        )
+        plan.remove_steps([1])
+        assert plan.step_intents == {0: "generate", 1: "fix"}
+
+    def test_add_steps_with_intents(self):
+        """add_steps() should accept intents for new steps"""
+        plan = Plan(
+            steps=["A"],
+            dependencies={},
+            step_intents={0: "default"}
+        )
+        plan.mark_step(0, step_status="completed")
+        plan.add_steps(
+            new_steps=["B", "C"],
+            new_dependencies={1: [0]},
+            insert_after=0,
+            new_intents={0: "generate", 1: "review"}
+        )
+        assert plan.step_intents[1] == "generate"
+        assert plan.step_intents[2] == "review"
+
+    def test_add_steps_without_intents_defaults(self):
+        """add_steps() without intents should default to 'default'"""
+        plan = Plan(steps=["A"], dependencies={}, step_intents={0: "default"})
+        plan.mark_step(0, step_status="completed")
+        plan.add_steps(
+            new_steps=["B"],
+            new_dependencies={},
+            insert_after=0
+        )
+        assert plan.step_intents[1] == "default"
+
+    def test_get_step_intent(self):
+        """get_step_intent() should return intent for a step"""
+        plan = Plan(
+            steps=["A", "B"],
+            step_intents={0: "generate", 1: "review"}
+        )
+        assert plan.get_step_intent(0) == "generate"
+        assert plan.get_step_intent(1) == "review"
+
+    def test_get_step_intent_default_fallback(self):
+        """get_step_intent() should return 'default' for missing index"""
+        plan = Plan(steps=["A"])
+        assert plan.get_step_intent(0) == "default"
+
+    def test_add_steps_reindexes_existing_intents(self):
+        """add_steps() should shift existing intents when inserting in the middle"""
+        plan = Plan(
+            steps=["A", "B", "C"],
+            dependencies={1: [0], 2: [1]},
+            step_intents={0: "generate", 1: "review", 2: "fix"}
+        )
+        plan.mark_step(0, step_status="completed")
+        # Insert 2 new steps after step 0
+        plan.add_steps(
+            new_steps=["X", "Y"],
+            new_dependencies={1: [0]},
+            insert_after=0,
+            new_intents={0: "default", 1: "generate"}
+        )
+        # Steps: A, X, Y, B, C
+        assert plan.step_intents[0] == "generate"   # A (unchanged)
+        assert plan.step_intents[1] == "default"     # X (new)
+        assert plan.step_intents[2] == "generate"    # Y (new)
+        assert plan.step_intents[3] == "review"      # B (shifted from 1)
+        assert plan.step_intents[4] == "fix"         # C (shifted from 2)
+
+
 class TestPlanReplanAttempts:
     """Tests for replan_attempts tracking"""
 

@@ -283,3 +283,100 @@ class TestReplannerAgentReplanSubgraph:
 
         assert isinstance(result, ReplanResult)
         assert result.new_steps == ["Step X", "Step Y"]
+
+
+class TestReplannerIntents:
+    def setup_method(self):
+        TaskManager._plans.clear()
+
+    def test_replan_result_includes_intents(self):
+        """ReplanResult should include intents for new steps"""
+        result = ReplanResult(
+            action="redesign",
+            new_steps=["Gen code", "Review code"],
+            new_dependencies={1: [0]},
+            new_intents={0: "generate", 1: "review"}
+        )
+        assert result.new_intents[0] == "generate"
+        assert result.new_intents[1] == "review"
+
+    def test_replan_result_default_intents(self):
+        """ReplanResult should default intents to empty dict"""
+        result = ReplanResult(
+            action="redesign",
+            new_steps=["Step A"],
+            new_dependencies={}
+        )
+        assert result.new_intents == {}
+
+    def test_parse_response_extracts_intents(self):
+        """Should parse intents from JSON response"""
+        plan = Plan(steps=["A"], dependencies={})
+        TaskManager.set_plan("p1", plan)
+
+        with patch("app.agents.replanner.replanner_agent.LlmAgent"):
+            replanner = ReplannerAgent(plan_id="p1", model=MagicMock())
+
+        response = '''```json
+        {
+            "action": "redesign",
+            "new_steps": ["Gen code", "Review"],
+            "new_dependencies": {"1": [0]},
+            "new_intents": {"0": "generate", "1": "review"}
+        }
+        ```'''
+        result = replanner._parse_replan_response(response)
+        assert result.new_intents == {0: "generate", 1: "review"}
+
+    def test_parse_response_missing_intents(self):
+        """Should handle missing intents in JSON response"""
+        plan = Plan(steps=["A"], dependencies={})
+        TaskManager.set_plan("p2", plan)
+
+        with patch("app.agents.replanner.replanner_agent.LlmAgent"):
+            replanner = ReplannerAgent(plan_id="p2", model=MagicMock())
+
+        response = '''```json
+        {
+            "action": "redesign",
+            "new_steps": ["Step A"],
+            "new_dependencies": {}
+        }
+        ```'''
+        result = replanner._parse_replan_response(response)
+        assert result.new_intents == {}
+
+    def test_available_intents_stored(self):
+        """Should store available_intents on init"""
+        plan = Plan(steps=["A"], dependencies={})
+        TaskManager.set_plan("p3", plan)
+
+        intents = {"default": "General", "generate": "Gen code"}
+        with patch("app.agents.replanner.replanner_agent.LlmAgent"):
+            replanner = ReplannerAgent(
+                plan_id="p3", model=MagicMock(),
+                available_intents=intents
+            )
+        assert replanner.available_intents == intents
+
+    def test_available_intents_in_prompt(self):
+        """Should include available intents in replan prompt"""
+        plan = Plan(steps=["A", "B"], dependencies={1: [0]})
+        plan.mark_step(0, step_status="completed")
+        TaskManager.set_plan("p4", plan)
+
+        intents = {"default": "General", "generate": "Gen code", "review": "Review code"}
+        with patch("app.agents.replanner.replanner_agent.LlmAgent"):
+            replanner = ReplannerAgent(
+                plan_id="p4", model=MagicMock(),
+                available_intents=intents
+            )
+
+        prompt = replanner._build_replan_prompt(
+            steps_to_replan=[1],
+            available_tools=["tool_a"]
+        )
+
+        assert "generate" in prompt
+        assert "review" in prompt
+        assert "Available Intents" in prompt

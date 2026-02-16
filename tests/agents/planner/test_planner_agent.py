@@ -94,3 +94,51 @@ class TestPlannerAgent:
         assert extra_tool in received_tools
         # Should have 2 toolkit tools + 1 extra tool
         assert len(received_tools) == 3
+
+
+class TestPlannerAgentIntents:
+    def setup_method(self):
+        TaskManager._plans.clear()
+        self.plan = Plan()
+        TaskManager.set_plan("plan_1", self.plan)
+
+    def test_init_with_available_intents(self):
+        """Should accept available_intents parameter"""
+        intents = {
+            "generate": "Generate new code",
+            "review": "Review code quality",
+            "default": "General tasks",
+        }
+        agent = PlannerAgent(
+            plan_id="plan_1",
+            model=Mock(),
+            available_intents=intents,
+        )
+        assert agent is not None
+
+    def test_init_without_available_intents(self):
+        """Should work without available_intents (backward compat)"""
+        agent = PlannerAgent(
+            plan_id="plan_1",
+            model=Mock(),
+        )
+        assert agent is not None
+
+    def test_intent_prompt_injection(self):
+        """Planner prompt should include available intents"""
+        from app.agents.planner.prompts import build_intent_prompt_section
+        intents = {
+            "generate": "Generate new code",
+            "default": "General tasks",
+        }
+        prompt = build_intent_prompt_section(intents)
+        assert "generate" in prompt
+        assert "Generate new code" in prompt
+        assert "default" in prompt
+
+    def test_intent_prompt_not_injected_when_only_default(self):
+        """Should not inject intent section when only 'default' intent exists"""
+        from app.agents.planner.prompts import build_intent_prompt_section
+        intents = {"default": "General tasks"}
+        prompt = build_intent_prompt_section(intents)
+        assert prompt == ""  # No need to inject when only default

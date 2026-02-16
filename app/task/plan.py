@@ -25,7 +25,8 @@ class Plan:
         self,
         title: str = "",
         steps: list[str] = None,
-        dependencies: dict[int, list[int]] = None
+        dependencies: dict[int, list[int]] = None,
+        step_intents: dict[int, str] = None
     ):
         self.title = title
         self.steps = steps if steps else []
@@ -49,11 +50,24 @@ class Plan:
         # Initialize replan tracking
         self.replan_attempts: dict[int, int] = {}
 
+        # Initialize step intents: fill missing indices with "default"
+        self.step_intents: dict[int, str] = {}
+        if step_intents:
+            self.step_intents.update(step_intents)
+        for i in range(len(self.steps)):
+            if i not in self.step_intents:
+                self.step_intents[i] = "default"
+
+    def get_step_intent(self, idx: int) -> str:
+        """Get the intent for a step, defaulting to 'default' if not found"""
+        return self.step_intents.get(idx, "default")
+
     def update(
         self,
         title: Optional[str] = None,
         steps: Optional[list[str]] = None,
-        dependencies: Optional[dict[int, list[int]]] = None
+        dependencies: Optional[dict[int, list[int]]] = None,
+        step_intents: Optional[dict[int, str]] = None
     ) -> None:
         """Update plan properties"""
         if title is not None:
@@ -68,6 +82,14 @@ class Plan:
             # Reinitialize tool history and file tracking
             self.step_tool_history = {}
             self.step_files = {}
+
+            # Reinitialize step intents
+            self.step_intents = {}
+            if step_intents:
+                self.step_intents.update(step_intents)
+            for i in range(len(self.steps)):
+                if i not in self.step_intents:
+                    self.step_intents[i] = "default"
 
             # Auto-generate dependencies if not provided
             if dependencies is None and len(self.steps) > 1:
@@ -391,11 +413,19 @@ class Plan:
                 new_files[index_map[old_idx]] = files
         self.step_files = new_files
 
+        # Update step intents indices
+        new_intents: dict[int, str] = {}
+        for old_idx, intent in list(self.step_intents.items()):
+            if old_idx in index_map:
+                new_intents[index_map[old_idx]] = intent
+        self.step_intents = new_intents
+
     def add_steps(
         self,
         new_steps: list[str],
         new_dependencies: dict[int, list[int]],
-        insert_after: int
+        insert_after: int,
+        new_intents: Optional[dict[int, str]] = None
     ) -> None:
         """
         Add new steps to the plan after a specified position.
@@ -404,14 +434,34 @@ class Plan:
             new_steps: List of new step descriptions
             new_dependencies: Dependencies between new steps (relative indices)
             insert_after: Index after which to insert new steps
+            new_intents: Optional intents for new steps (relative indices).
+                         Missing intents default to "default".
         """
         base_idx = insert_after + 1
+        shift = len(new_steps)
+
+        # Shift existing intents for steps at or after insertion point
+        shifted_intents: dict[int, str] = {}
+        for idx, intent in self.step_intents.items():
+            if idx >= base_idx:
+                shifted_intents[idx + shift] = intent
+            else:
+                shifted_intents[idx] = intent
+        self.step_intents = shifted_intents
 
         # Add new steps
         for i, step in enumerate(new_steps):
             self.steps.insert(base_idx + i, step)
             self.step_statuses[step] = "not_started"
             self.step_notes[step] = ""
+
+        # Add intents for new steps
+        for i in range(len(new_steps)):
+            abs_idx = base_idx + i
+            if new_intents and i in new_intents:
+                self.step_intents[abs_idx] = new_intents[i]
+            else:
+                self.step_intents[abs_idx] = "default"
 
         # Convert relative dependencies to absolute indices
         normalized_deps = self._normalize_dependencies(new_dependencies)

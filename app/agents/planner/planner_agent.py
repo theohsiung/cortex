@@ -1,6 +1,6 @@
 from typing import Any, Callable, TYPE_CHECKING
 from app.agents.base.base_agent import BaseAgent
-from app.agents.planner.prompts import PLANNER_SYSTEM_PROMPT
+from app.agents.planner.prompts import PLANNER_SYSTEM_PROMPT, build_intent_prompt_section
 from app.task.task_manager import TaskManager
 from app.tools.plan_toolkit import PlanToolkit
 
@@ -31,6 +31,7 @@ class PlannerAgent(BaseAgent):
         model: Any = None,
         agent_factory: Callable[[list], Any] = None,
         extra_tools: list = None,
+        available_intents: dict[str, str] = None,
     ):
         """
         Initialize PlannerAgent.
@@ -40,6 +41,7 @@ class PlannerAgent(BaseAgent):
             model: LLM model (required if agent_factory is None)
             agent_factory: Optional factory function that receives tools and returns an agent
             extra_tools: Additional tools (e.g., from sandbox) to include
+            available_intents: Dict mapping intent names to descriptions for prompt injection
         """
         plan = TaskManager.get_plan(plan_id)
         if plan is None:
@@ -55,6 +57,12 @@ class PlannerAgent(BaseAgent):
         if extra_tools:
             tools.extend(extra_tools)
 
+        # Build instruction with optional intent section
+        instruction = PLANNER_SYSTEM_PROMPT
+        if available_intents and len(available_intents) > 1:
+            intent_section = build_intent_prompt_section(available_intents)
+            instruction = instruction + "\n\n" + intent_section
+
         # Use factory or create default LlmAgent
         if agent_factory is not None:
             agent = agent_factory(tools)
@@ -65,7 +73,7 @@ class PlannerAgent(BaseAgent):
                 name="planner",
                 model=model,
                 tools=tools,
-                instruction=PLANNER_SYSTEM_PROMPT,
+                instruction=instruction,
             )
         else:
             raise ValueError("Either 'model' or 'agent_factory' must be provided")

@@ -30,7 +30,8 @@ You MUST respond with a JSON block containing your redesign decision:
 {
     "action": "redesign",
     "new_steps": ["Step description 1", "Step description 2", ...],
-    "new_dependencies": {"1": [0], "2": [1], ...}
+    "new_dependencies": {"1": [0], "2": [1], ...},
+    "new_intents": {"0": "generate", "1": "review", ...}
 }
 ```
 
@@ -40,7 +41,8 @@ Or if the task cannot be completed:
 {
     "action": "give_up",
     "new_steps": [],
-    "new_dependencies": {}
+    "new_dependencies": {},
+    "new_intents": {}
 }
 ```
 
@@ -54,6 +56,9 @@ Or if the task cannot be completed:
    - First step (index 0) needs no entry - it automatically depends on the last completed step
    - Example: `{"1": [0], "2": [1]}` means step 1 depends on step 0, step 2 depends on step 1
 6. **Give up wisely**: Only give up if the task is truly impossible with available tools
+7. **Intents format**: Assign an intent to each new step using RELATIVE indices (0-based)
+   - The intent describes the purpose of the step (e.g., "generate", "review", "validate")
+   - Each key in `new_intents` maps to the corresponding step index in `new_steps`
 
 ## Example
 
@@ -76,7 +81,8 @@ You should redesign steps 2, 3, 4 while keeping steps 0, 1 intact:
         "Add error handling",
         "Write and run tests"
     ],
-    "new_dependencies": {"1": [0], "2": [0], "3": [1, 2], "4": [3]}
+    "new_dependencies": {"1": [0], "2": [0], "3": [1, 2], "4": [3]},
+    "new_intents": {"0": "generate", "1": "generate", "2": "generate", "3": "generate", "4": "review"}
 }
 ```
 
@@ -90,7 +96,8 @@ The system will:
 def build_replan_prompt(
     completed_tool_history: str,
     steps_to_replan: list[tuple[int, str]],
-    available_tools: list[str]
+    available_tools: list[str],
+    available_intents: dict[str, str] = None,
 ) -> str:
     """
     Build the prompt for replanning.
@@ -99,6 +106,7 @@ def build_replan_prompt(
         completed_tool_history: Formatted tool history of completed steps
         steps_to_replan: List of (index, description) for steps to redesign
         available_tools: List of available tool names
+        available_intents: Dict of intent_name -> description for routing
 
     Returns:
         Complete prompt for the replanner
@@ -107,6 +115,21 @@ def build_replan_prompt(
         f"- Step {idx}: {desc}" for idx, desc in steps_to_replan
     )
     tools_section = "\n".join(f"- {tool}" for tool in available_tools)
+
+    # Build available intents section
+    intents_section = ""
+    if available_intents and len(available_intents) > 1:
+        intents_lines = "\n".join(
+            f"- `{name}`: {desc}" for name, desc in available_intents.items()
+        )
+        intents_section = f"""
+---
+
+## Available Intents
+
+Assign one of these intents to each new step in `new_intents`:
+{intents_lines}
+"""
 
     return f"""## Completed Steps (READ-ONLY - DO NOT MODIFY)
 
@@ -123,7 +146,7 @@ def build_replan_prompt(
 ## Available Tools
 
 {tools_section}
-
+{intents_section}
 ---
 
 **Remember:**
