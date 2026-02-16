@@ -1,10 +1,10 @@
 import asyncio
 import logging
 import time
-from typing import Any, Callable, Union
+from typing import Callable, Union
 
 from app.task.task_manager import TaskManager
-from app.config import CortexConfig, SandboxConfig
+from app.config import CortexConfig
 
 logger = logging.getLogger(__name__)
 from app.task.plan import Plan

@@ -13,9 +13,6 @@ if TYPE_CHECKING:
 class SandboxManager:
     """Manages Docker container and MCP toolsets for sandboxed execution."""
 
-    # Default Docker image for sandbox
-    DEFAULT_IMAGE = "cortex-sandbox:latest"
-
     # Path to MCP servers in container
     SHELL_SERVER = "/opt/mcp_servers/shell_server.py"
 

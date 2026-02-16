@@ -2,6 +2,8 @@ import sys
 from pathlib import Path
 from unittest.mock import Mock, MagicMock
 
+import pytest
+
 # Add project root to Python path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -33,3 +35,9 @@ sys.modules['google.adk.runners'] = MagicMock()
 sys.modules['google.adk.sessions'] = MagicMock()
 sys.modules['google.genai'] = MagicMock()
 sys.modules['google.genai.types'] = mock_genai_types
+
+
+@pytest.fixture(autouse=True)
+def _no_toml_file(monkeypatch):
+    """Prevent tests from accidentally loading a real config.toml."""
+    monkeypatch.setattr("app.config.get_config_file_path", lambda: None)
