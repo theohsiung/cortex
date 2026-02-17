@@ -1,9 +1,11 @@
 """Tests for Verifier - tool call verification logic"""
 
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock
-from app.task.plan import Plan
+
 from app.agents.verifier.verifier import Verifier
+from app.task.plan import Plan
 
 
 class TestVerifierVerifyStep:
@@ -83,7 +85,9 @@ class TestVerifierGetFailedCalls:
         plan = Plan(steps=["Step A"])
         verifier = Verifier()
 
-        plan.add_tool_call_pending(0, "write_file", {"path": "test.py", "content": "..."}, "2026-01-26T10:00:00")
+        plan.add_tool_call_pending(
+            0, "write_file", {"path": "test.py", "content": "..."}, "2026-01-26T10:00:00"
+        )
 
         failed = verifier.get_failed_calls(plan, 0)
 
@@ -255,6 +259,7 @@ class TestVerifierLLMBased:
     def test_verify_result_dataclass(self):
         """VerifyResult should have passed and notes fields"""
         from app.agents.verifier.verifier import VerifyResult
+
         result = VerifyResult(passed=True, notes="[SUCCESS]: Done")
         assert result.passed is True
         assert result.notes == "[SUCCESS]: Done"
@@ -262,6 +267,7 @@ class TestVerifierLLMBased:
     def test_verify_step_returns_verify_result(self):
         """verify_step should return VerifyResult"""
         from app.agents.verifier.verifier import VerifyResult
+
         plan = Plan(steps=["Step A"])
         verifier = Verifier()
         result = verifier.verify_step(plan, 0)
@@ -295,15 +301,15 @@ class TestVerifierLLMBased:
     async def test_evaluate_output_success(self):
         """evaluate_output should detect success from executor output"""
         from app.agents.verifier.verifier import VerifyResult
+
         verifier = Verifier(model=Mock())
         # Mock the LLM call to return success
-        verifier._llm_evaluate = AsyncMock(return_value=VerifyResult(
-            passed=True,
-            notes="[SUCCESS]: Code generated successfully"
-        ))
+        verifier._llm_evaluate = AsyncMock(
+            return_value=VerifyResult(passed=True, notes="[SUCCESS]: Code generated successfully")
+        )
         result = await verifier.evaluate_output(
             step_description="Generate parser code",
-            executor_output="Here is the parser code:\ndef parse(text): ..."
+            executor_output="Here is the parser code:\ndef parse(text): ...",
         )
         assert result.passed is True
         assert "[SUCCESS]" in result.notes
@@ -312,14 +318,14 @@ class TestVerifierLLMBased:
     async def test_evaluate_output_failure(self):
         """evaluate_output should detect failure from executor output"""
         from app.agents.verifier.verifier import VerifyResult
+
         verifier = Verifier(model=Mock())
-        verifier._llm_evaluate = AsyncMock(return_value=VerifyResult(
-            passed=False,
-            notes="[FAIL]: No code was generated"
-        ))
+        verifier._llm_evaluate = AsyncMock(
+            return_value=VerifyResult(passed=False, notes="[FAIL]: No code was generated")
+        )
         result = await verifier.evaluate_output(
             step_description="Generate parser code",
-            executor_output="A parser typically works by..."
+            executor_output="A parser typically works by...",
         )
         assert result.passed is False
         assert "[FAIL]" in result.notes
@@ -329,7 +335,6 @@ class TestVerifierLLMBased:
         """evaluate_output without model should return pass with generic notes"""
         verifier = Verifier()  # No model
         result = await verifier.evaluate_output(
-            step_description="Do something",
-            executor_output="Done"
+            step_description="Do something", executor_output="Done"
         )
         assert result.passed is True

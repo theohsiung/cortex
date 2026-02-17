@@ -1,12 +1,15 @@
-from typing import Optional, Any
+"""Execution plan with steps, dependencies, and status tracking."""
 
+from __future__ import annotations
+
+from typing import Any
 
 # Constants for tool history
 RESULT_MAX_LENGTH = 200
 
 
 class Plan:
-    """Represents an execution plan with steps, dependencies, and status tracking"""
+    """Represents an execution plan with steps, dependencies, and status tracking."""
 
     @staticmethod
     def _normalize_dependencies(deps: dict) -> dict[int, list[int]]:
@@ -16,18 +19,15 @@ class Plan:
         """
         if not deps:
             return {}
-        return {
-            int(k): [int(v) for v in vals]
-            for k, vals in deps.items()
-        }
+        return {int(k): [int(v) for v in vals] for k, vals in deps.items()}
 
     def __init__(
         self,
         title: str = "",
-        steps: list[str] = None,
-        dependencies: dict[int, list[int]] = None,
-        step_intents: dict[int, str] = None
-    ):
+        steps: list[str] | None = None,
+        dependencies: dict[int, list[int]] | None = None,
+        step_intents: dict[int, str] | None = None,
+    ) -> None:
         self.title = title
         self.steps = steps if steps else []
 
@@ -59,17 +59,17 @@ class Plan:
                 self.step_intents[i] = "default"
 
     def get_step_intent(self, idx: int) -> str:
-        """Get the intent for a step, defaulting to 'default' if not found"""
+        """Get the intent for a step, defaulting to 'default' if not found."""
         return self.step_intents.get(idx, "default")
 
     def update(
         self,
-        title: Optional[str] = None,
-        steps: Optional[list[str]] = None,
-        dependencies: Optional[dict[int, list[int]]] = None,
-        step_intents: Optional[dict[int, str]] = None
+        title: str | None = None,
+        steps: list[str] | None = None,
+        dependencies: dict[int, list[int]] | None = None,
+        step_intents: dict[int, str] | None = None,
     ) -> None:
-        """Update plan properties"""
+        """Update plan properties."""
         if title is not None:
             self.title = title
 
@@ -101,10 +101,10 @@ class Plan:
     def mark_step(
         self,
         step_index: int,
-        step_status: Optional[str] = None,
-        step_notes: Optional[str] = None
+        step_status: str | None = None,
+        step_notes: str | None = None,
     ) -> None:
-        """Mark a step with status and/or notes"""
+        """Mark a step with status and/or notes."""
         if step_index < 0 or step_index >= len(self.steps):
             raise ValueError(f"Invalid step_index: {step_index}")
 
@@ -117,14 +117,9 @@ class Plan:
             self.step_notes[step] = step_notes
 
     def add_tool_call(
-        self,
-        step_index: int,
-        tool: str,
-        args: dict,
-        result: Any,
-        timestamp: str
+        self, step_index: int, tool: str, args: dict, result: Any, timestamp: str
     ) -> None:
-        """Record a tool call for a step"""
+        """Record a tool call for a step."""
         if step_index < 0 or step_index >= len(self.steps):
             raise ValueError(f"Invalid step_index: {step_index}")
 
@@ -136,42 +131,26 @@ class Plan:
         if len(result_str) > RESULT_MAX_LENGTH:
             result_str = result_str[:RESULT_MAX_LENGTH] + "...[truncated]"
 
-        self.step_tool_history[step_index].append({
-            "tool": tool,
-            "args": args,
-            "result": result_str,
-            "timestamp": timestamp
-        })
+        self.step_tool_history[step_index].append(
+            {"tool": tool, "args": args, "result": result_str, "timestamp": timestamp}
+        )
 
-    def add_tool_call_pending(
-        self,
-        step_index: int,
-        tool: str,
-        args: dict,
-        call_time: str
-    ) -> None:
-        """Record a pending tool call for a step"""
+    def add_tool_call_pending(self, step_index: int, tool: str, args: dict, call_time: str) -> None:
+        """Record a pending tool call for a step."""
         if step_index < 0 or step_index >= len(self.steps):
             raise ValueError(f"Invalid step_index: {step_index}")
 
         if step_index not in self.step_tool_history:
             self.step_tool_history[step_index] = []
 
-        self.step_tool_history[step_index].append({
-            "tool": tool,
-            "args": args,
-            "status": "pending",
-            "call_time": call_time
-        })
+        self.step_tool_history[step_index].append(
+            {"tool": tool, "args": args, "status": "pending", "call_time": call_time}
+        )
 
     def update_tool_result(
-        self,
-        step_index: int,
-        tool: str,
-        result: Any,
-        response_time: str
+        self, step_index: int, tool: str, result: Any, response_time: str
     ) -> None:
-        """Update a pending tool call to success with result (FIFO matching)"""
+        """Update a pending tool call to success with result (FIFO matching)."""
         if step_index not in self.step_tool_history:
             return
 
@@ -209,7 +188,7 @@ class Plan:
         return True  # All success
 
     def add_file(self, step_index: int, file_path: str) -> None:
-        """Record a generated file for a step"""
+        """Record a generated file for a step."""
         if step_index < 0 or step_index >= len(self.steps):
             raise ValueError(f"Invalid step_index: {step_index}")
 
@@ -220,7 +199,7 @@ class Plan:
             self.step_files[step_index].append(file_path)
 
     def get_ready_steps(self) -> list[int]:
-        """Get indices of steps ready to execute (dependencies satisfied)"""
+        """Get indices of steps ready to execute (dependencies satisfied)."""
         ready = []
 
         for idx, step in enumerate(self.steps):
@@ -230,10 +209,7 @@ class Plan:
 
             # Check if all dependencies are completed
             deps = self.dependencies.get(idx, [])
-            all_deps_done = all(
-                self.step_statuses[self.steps[dep]] == "completed"
-                for dep in deps
-            )
+            all_deps_done = all(self.step_statuses[self.steps[dep]] == "completed" for dep in deps)
 
             if all_deps_done:
                 ready.append(idx)
@@ -245,10 +221,10 @@ class Plan:
         Get all downstream steps (direct + indirect dependents).
 
         Args:
-            step_idx: The step index to find dependents for
+            step_idx: The step index to find dependents for.
 
         Returns:
-            Sorted list of step indices that depend on this step
+            Sorted list of step indices that depend on this step.
         """
         downstream = set()
         to_check = [step_idx]
@@ -267,21 +243,21 @@ class Plan:
         return sorted(downstream)
 
     def get_progress(self) -> dict[str, int]:
-        """Get progress statistics"""
+        """Get progress statistics."""
         statuses = list(self.step_statuses.values())
         return {
             "total": len(self.steps),
             "completed": statuses.count("completed"),
             "in_progress": statuses.count("in_progress"),
             "blocked": statuses.count("blocked"),
-            "not_started": statuses.count("not_started")
+            "not_started": statuses.count("not_started"),
         }
 
     def format_dag(self) -> str:
         """Format DAG structure for debugging.
 
         Returns:
-            Compact DAG representation showing steps and dependencies
+            Compact DAG representation showing steps and dependencies.
         """
         lines = []
         for idx, step in enumerate(self.steps):
@@ -295,7 +271,7 @@ class Plan:
         return "\n".join(lines)
 
     def format(self) -> str:
-        """Format plan for display"""
+        """Format plan for display."""
         lines = [f"Plan: {self.title}", "=" * 40, ""]
 
         progress = self.get_progress()
@@ -308,7 +284,7 @@ class Plan:
             "not_started": "[ ]",
             "in_progress": "[→]",
             "completed": "[✓]",
-            "blocked": "[!]"
+            "blocked": "[!]",
         }
 
         for idx, step in enumerate(self.steps):
@@ -341,7 +317,7 @@ class Plan:
         Remove steps and update DAG structure.
 
         Args:
-            step_indices: List of step indices to remove (must be sorted desc internally)
+            step_indices: List of step indices to remove (must be sorted desc internally).
         """
         # Filter out invalid indices (out of range)
         valid_indices = [idx for idx in step_indices if 0 <= idx < len(self.steps)]
@@ -425,17 +401,16 @@ class Plan:
         new_steps: list[str],
         new_dependencies: dict[int, list[int]],
         insert_after: int,
-        new_intents: Optional[dict[int, str]] = None
+        new_intents: dict[int, str] | None = None,
     ) -> None:
-        """
-        Add new steps to the plan after a specified position.
+        """Add new steps to the plan after a specified position.
 
         Args:
-            new_steps: List of new step descriptions
-            new_dependencies: Dependencies between new steps (relative indices)
-            insert_after: Index after which to insert new steps
+            new_steps: List of new step descriptions.
+            new_dependencies: Dependencies between new steps (relative indices).
+            insert_after: Index after which to insert new steps.
             new_intents: Optional intents for new steps (relative indices).
-                         Missing intents default to "default".
+                Missing intents default to "default".
         """
         base_idx = insert_after + 1
         shift = len(new_steps)
@@ -482,10 +457,10 @@ class Plan:
         Format tool history for specified steps.
 
         Args:
-            step_indices: List of step indices to format
+            step_indices: List of step indices to format.
 
         Returns:
-            Formatted string with tool call details
+            Formatted string with tool call details.
         """
         lines = []
 
@@ -502,7 +477,6 @@ class Plan:
                     tool = call["tool"]
                     args = call.get("args", {})
                     result = call.get("result", "")
-                    status = call.get("status", "unknown")
 
                     # Format args as key=value pairs
                     args_str = ", ".join(f'{k}="{v}"' for k, v in args.items())

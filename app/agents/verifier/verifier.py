@@ -1,21 +1,25 @@
-"""Verifier - Tool call verification and LLM-based output evaluation"""
+"""Verifier - Tool call verification and LLM-based output evaluation."""
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+
 from app.task.plan import Plan
 
 
 @dataclass
 class VerifyResult:
-    """Result from verification"""
+    """Result from verification."""
+
     passed: bool
     notes: str = ""
 
 
 class Verifier:
-    """Verifies step execution via tool call checking and LLM-based output evaluation"""
+    """Verifies step execution via tool call checking and LLM-based output evaluation."""
 
-    def __init__(self, model: Any = None):
+    def __init__(self, model: Any | None = None) -> None:
         self.model = model
 
     def verify_step(self, plan: Plan, step_idx: int) -> VerifyResult:
@@ -33,7 +37,9 @@ class Verifier:
         tool_history = plan.step_tool_history.get(step_idx, [])
         for call in tool_history:
             if call.get("status") == "pending":
-                return VerifyResult(passed=False, notes="Pending tool calls detected (hallucination)")
+                return VerifyResult(
+                    passed=False, notes="Pending tool calls detected (hallucination)"
+                )
 
         return VerifyResult(passed=True, notes=notes if notes else "")
 
@@ -70,7 +76,8 @@ class Verifier:
         from google.adk.sessions import InMemorySessionService
         from google.genai.types import Content, Part
 
-        prompt = f"""Evaluate whether the following executor output successfully completes the assigned step.
+        prompt = f"""Evaluate whether the following executor output \
+successfully completes the assigned step.
 
 Step: {step_description}
 
@@ -81,6 +88,7 @@ Respond with EXACTLY one of:
 - [SUCCESS]: <brief description of what was accomplished>
 - [FAIL]: <reason why the step was not completed>
 """
+        assert self.model is not None
         agent = LlmAgent(
             name="verifier",
             model=self.model,
@@ -88,9 +96,7 @@ Respond with EXACTLY one of:
         )
 
         session_service = InMemorySessionService()
-        session = await session_service.create_session(
-            app_name="verifier", user_id="verifier"
-        )
+        session = await session_service.create_session(app_name="verifier", user_id="verifier")
 
         runner = Runner(
             agent=agent,
@@ -104,7 +110,7 @@ Respond with EXACTLY one of:
             user_id="verifier", session_id=session.id, new_message=content
         ):
             if hasattr(event, "content") and event.content:
-                if hasattr(event.content, "parts"):
+                if hasattr(event.content, "parts") and event.content.parts:
                     for part in event.content.parts:
                         if hasattr(part, "text") and part.text:
                             final_output = part.text

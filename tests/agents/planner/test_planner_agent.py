@@ -1,8 +1,10 @@
-import pytest
 from unittest.mock import Mock
-from app.task.task_manager import TaskManager
-from app.task.plan import Plan
+
+import pytest
+
 from app.agents.planner.planner_agent import PlannerAgent
+from app.task.plan import Plan
+from app.task.task_manager import TaskManager
 
 
 class TestPlannerAgent:
@@ -13,34 +15,22 @@ class TestPlannerAgent:
 
     def test_init_gets_plan_from_task_manager(self):
         """Should get plan from TaskManager"""
-        agent = PlannerAgent(
-            plan_id="plan_1",
-            model=Mock()
-        )
+        agent = PlannerAgent(plan_id="plan_1", model=Mock())
 
         assert agent.plan is self.plan
 
     def test_has_plan_tools(self):
         """Should have create_plan and update_plan tools"""
-        agent = PlannerAgent(
-            plan_id="plan_1",
-            model=Mock()
-        )
+        agent = PlannerAgent(plan_id="plan_1", model=Mock())
 
         assert "create_plan" in agent.tool_functions
         assert "update_plan" in agent.tool_functions
 
     def test_tools_modify_same_plan(self):
         """Tools should modify the TaskManager plan"""
-        agent = PlannerAgent(
-            plan_id="plan_1",
-            model=Mock()
-        )
+        agent = PlannerAgent(plan_id="plan_1", model=Mock())
 
-        agent.tool_functions["create_plan"](
-            title="Test Plan",
-            steps=["Step 1", "Step 2"]
-        )
+        agent.tool_functions["create_plan"](title="Test Plan", steps=["Step 1", "Step 2"])
 
         # Verify the TaskManager plan was modified
         plan = TaskManager.get_plan("plan_1")
@@ -50,10 +40,7 @@ class TestPlannerAgent:
     def test_plan_not_found_raises_error(self):
         """Should raise ValueError when plan_id not found"""
         with pytest.raises(ValueError):
-            PlannerAgent(
-                plan_id="nonexistent",
-                model=Mock()
-            )
+            PlannerAgent(plan_id="nonexistent", model=Mock())
 
     def test_agent_factory_receives_tools(self):
         """agent_factory should receive toolkit tools"""
@@ -63,10 +50,7 @@ class TestPlannerAgent:
             received_tools.extend(tools)
             return Mock()
 
-        PlannerAgent(
-            plan_id="plan_1",
-            agent_factory=my_factory
-        )
+        PlannerAgent(plan_id="plan_1", agent_factory=my_factory)
 
         # Factory should receive 2 tools (no aliases by default)
         assert len(received_tools) == 2
@@ -127,6 +111,7 @@ class TestPlannerAgentIntents:
     def test_intent_prompt_injection(self):
         """Planner prompt should include available intents"""
         from app.agents.planner.prompts import build_intent_prompt_section
+
         intents = {
             "generate": "Generate new code",
             "default": "General tasks",
@@ -139,6 +124,7 @@ class TestPlannerAgentIntents:
     def test_intent_prompt_not_injected_when_only_default(self):
         """Should not inject intent section when only 'default' intent exists"""
         from app.agents.planner.prompts import build_intent_prompt_section
+
         intents = {"default": "General tasks"}
         prompt = build_intent_prompt_section(intents)
         assert prompt == ""  # No need to inject when only default

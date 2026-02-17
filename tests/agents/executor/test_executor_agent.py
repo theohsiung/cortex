@@ -1,8 +1,10 @@
+from unittest.mock import Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock
-from app.task.task_manager import TaskManager
-from app.task.plan import Plan
+
 from app.agents.executor.executor_agent import ExecutorAgent
+from app.task.plan import Plan
+from app.task.task_manager import TaskManager
 
 
 class TestExecutorAgent:
@@ -29,18 +31,22 @@ class TestExecutorAgent:
     def test_external_agent_factory_no_tools_injected(self):
         """External agent factory (no args) should work"""
         called = []
+
         def my_factory():
             called.append(True)
             return Mock()
+
         ExecutorAgent(plan_id="plan_1", agent_factory=my_factory)
         assert len(called) == 1
 
     def test_legacy_agent_factory_with_tools(self):
         """Legacy agent factory (with tools arg) should still work"""
         received_tools = []
+
         def my_factory(tools: list):
             received_tools.extend(tools)
             return Mock()
+
         ExecutorAgent(plan_id="plan_1", agent_factory=my_factory, extra_tools=[Mock()])
         # Should receive extra_tools (no mark_step)
         assert len(received_tools) >= 1

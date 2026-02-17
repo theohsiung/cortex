@@ -1,12 +1,12 @@
-"""
-Compare single LLM call vs Cortex multi-step execution.
+"""Compare single LLM call vs Cortex multi-step execution.
 
 Usage:
     uv run python example_compare.py
 """
 
+from __future__ import annotations
+
 import asyncio
-import os
 import time
 import warnings
 
@@ -16,16 +16,14 @@ load_dotenv()
 
 warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
 
-from google.adk.models import LiteLlm
 from google.adk.agents import LlmAgent
+from google.adk.models import LiteLlm
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai.types import Content, Part
-from cortex import Cortex
 
-# Model configuration
-API_BASE_URL = "http://deltallm-proxy.10.143.156.8.sslip.io"
-MODEL_NAME = "gpt-oss-20b"
+from app.config import CortexConfig
+from cortex import Cortex
 
 
 async def single_llm_call(model, query: str) -> tuple[str, float]:
@@ -45,11 +43,9 @@ async def single_llm_call(model, query: str) -> tuple[str, float]:
     content = Content(parts=[Part(text=query)])
 
     result = ""
-    async for event in runner.run_async(
-        user_id="user", session_id=session.id, new_message=content
-    ):
+    async for event in runner.run_async(user_id="user", session_id=session.id, new_message=content):
         if hasattr(event, "content") and event.content:
-            if hasattr(event.content, "parts"):
+            if hasattr(event.content, "parts") and event.content.parts:
                 for part in event.content.parts:
                     if hasattr(part, "text") and part.text:
                         result = part.text
@@ -58,32 +54,27 @@ async def single_llm_call(model, query: str) -> tuple[str, float]:
     return result, elapsed
 
 
-async def cortex_call(model, query: str) -> tuple[str, float]:
+async def cortex_call(config: CortexConfig, query: str) -> tuple[str, float]:
     """Cortex multi-step execution with planning and parallel execution."""
     start = time.time()
 
-    cortex = Cortex(model=model)
+    cortex = Cortex(config)
     result = await cortex.execute(query)
 
     elapsed = time.time() - start
     return result, elapsed
 
 
-async def main():
+async def main() -> None:
+    """Run comparison between single LLM call and Cortex multi-step execution."""
+    config = CortexConfig()  # type: ignore[call-arg]
+
+    # For single_llm_call, create model from config
     model = LiteLlm(
-        model=f"openai/{MODEL_NAME}",
-        api_base=API_BASE_URL,
-        api_key=os.getenv("DELTALLM_API_KEY"),
+        model=config.model.name,
+        api_base=config.model.api_base,
+        api_key=config.model.resolve_api_key(),
     )
-    # model = LiteLlm(
-    #     model=f"gemini/gemini-2.5-flash",
-    #     api_key=os.getenv("GEMINI_API_KEY"),
-    # )
-    # model = LiteLlm(
-    #     model=f"openai/Qwen/Qwen3-4B-Instruct-2507",
-    #     api_base="http://0.0.0.0:8000/v1",
-    #     api_key="dummy",
-    # )
 
     query = "寫一篇短篇中文兒童故事"
     print(f"Query: {query}\n")
@@ -101,7 +92,7 @@ async def main():
     # Cortex multi-step
     print("\n[2] CORTEX MULTI-STEP")
     print("-" * 40)
-    cortex_result, cortex_time = await cortex_call(model, query)
+    cortex_result, cortex_time = await cortex_call(config, query)
     print(cortex_result)
     print(f"\nTime: {cortex_time:.2f}s")
 

@@ -1,0 +1,36 @@
+# Cortex Configuration
+# Copy this file to config.toml and fill in your values.
+
+[model]
+name = "openai/your-model-name"
+api_base = "http://localhost:8000/v1"
+api_key_env_var = "YOUR_API_KEY"
+
+[sandbox]
+enable_filesystem = false
+enable_shell = false
+docker_image = "cortex-sandbox:latest"
+
+[tuning]
+max_concurrent_steps = 3
+max_retries = 3
+max_replan_attempts = 2
+
+# MCP Server examples (uncomment to use):
+# [[mcp_servers]]
+# transport = "sse"
+# url = "http://example.com/mcp"
+# headers = { "Authorization" = "Bearer token" }
+
+# [[mcp_servers]]
+# transport = "stdio"
+# command = "python"
+# args = ["-m", "my_mcp_server"]
+
+# Executor examples (uncomment to use):
+# [[executors]]
+# intent = "generate"
+# description = "Generate new code"
+# factory_module = "app.agents.coding_agent.agent.mistral_vibe._agent"
+# factory_function = "create_coding_agent"
+# is_default = true

@@ -1,8 +1,14 @@
-import pytest
-from unittest.mock import Mock, patch, MagicMock
+"""Tests for the SandboxManager."""
+
+from __future__ import annotations
+
 import asyncio
 import sys
+from unittest.mock import MagicMock, patch
 
+import pytest
+
+from app.config import MCPSse, MCPStdio, SandboxConfig
 
 # Mock google.adk to avoid import issues in tests
 mock_adk_tools = MagicMock()
@@ -18,9 +24,7 @@ class TestSandboxManager:
         from app.sandbox.sandbox_manager import SandboxManager
 
         manager = SandboxManager(
-            user_id="alice",
-            enable_filesystem=True,
-            enable_shell=False,
+            SandboxConfig(user_id="alice", enable_filesystem=True, enable_shell=False),
         )
 
         assert manager.user_id == "alice"
@@ -33,7 +37,7 @@ class TestSandboxManager:
         """Should auto-generate user_id if not provided"""
         from app.sandbox.sandbox_manager import SandboxManager
 
-        manager = SandboxManager(enable_filesystem=True)
+        manager = SandboxManager(SandboxConfig(enable_filesystem=True))
 
         assert manager.user_id.startswith("auto-")
         assert len(manager.user_id) == 13  # "auto-" + 8 hex chars
@@ -42,9 +46,9 @@ class TestSandboxManager:
         """Should store user MCP server configs"""
         from app.sandbox.sandbox_manager import SandboxManager
 
-        servers = [{"url": "https://example.com/mcp"}]
+        servers = [MCPSse(transport="sse", url="https://example.com/mcp")]
         manager = SandboxManager(
-            user_id="test",
+            SandboxConfig(user_id="test"),
             mcp_servers=servers,
         )
 
@@ -60,8 +64,7 @@ class TestSandboxManagerDockerCheck:
         mock_docker.from_env.side_effect = Exception("Docker not running")
 
         manager = SandboxManager(
-            user_id="test",
-            enable_shell=True,
+            SandboxConfig(user_id="test", enable_shell=True),
         )
 
         with pytest.raises(RuntimeError, match="Docker"):
@@ -77,8 +80,7 @@ class TestSandboxManagerDockerCheck:
         mock_client.ping.side_effect = Exception("Connection refused")
 
         manager = SandboxManager(
-            user_id="test",
-            enable_shell=True,
+            SandboxConfig(user_id="test", enable_shell=True),
         )
 
         with pytest.raises(RuntimeError, match="Docker"):
@@ -89,9 +91,7 @@ class TestSandboxManagerDockerCheck:
         from app.sandbox.sandbox_manager import SandboxManager
 
         manager = SandboxManager(
-            user_id="test",
-            enable_filesystem=True,
-            enable_shell=False,
+            SandboxConfig(user_id="test", enable_filesystem=True, enable_shell=False),
         )
 
         # Should not raise - filesystem uses local @anthropic/mcp-filesystem
@@ -112,8 +112,7 @@ class TestSandboxManagerContainer:
         mock_client.containers.run.return_value = mock_container
 
         manager = SandboxManager(
-            user_id="test",
-            enable_shell=True,
+            SandboxConfig(user_id="test", enable_shell=True),
         )
 
         asyncio.run(manager.start())
@@ -135,8 +134,7 @@ class TestSandboxManagerContainer:
         mock_client.containers.run.return_value = mock_container
 
         manager = SandboxManager(
-            user_id="alice",
-            enable_shell=True,
+            SandboxConfig(user_id="alice", enable_shell=True),
         )
 
         asyncio.run(manager.start())
@@ -157,7 +155,7 @@ class TestSandboxManagerContainer:
         mock_container.id = "test123"
         mock_client.containers.run.return_value = mock_container
 
-        manager = SandboxManager(user_id="test", enable_shell=True)
+        manager = SandboxManager(SandboxConfig(user_id="test", enable_shell=True))
 
         asyncio.run(manager.start())
         asyncio.run(manager.stop())
@@ -169,7 +167,7 @@ class TestSandboxManagerContainer:
         """Should handle stop without start gracefully"""
         from app.sandbox.sandbox_manager import SandboxManager
 
-        manager = SandboxManager(user_id="test")
+        manager = SandboxManager(SandboxConfig(user_id="test"))
 
         asyncio.run(manager.stop())  # Should not raise
 
@@ -184,7 +182,7 @@ class TestSandboxManagerContainer:
         mock_container.id = "test123"
         mock_client.containers.run.return_value = mock_container
 
-        manager = SandboxManager(user_id="test", enable_shell=True)
+        manager = SandboxManager(SandboxConfig(user_id="test", enable_shell=True))
 
         async def test():
             async with manager:
@@ -206,7 +204,7 @@ class TestSandboxManagerContainer:
         mock_container.id = "test123"
         mock_client.containers.run.return_value = mock_container
 
-        manager = SandboxManager(user_id="test", enable_shell=True)
+        manager = SandboxManager(SandboxConfig(user_id="test", enable_shell=True))
 
         asyncio.run(manager.start())
 
@@ -219,8 +217,7 @@ class TestSandboxManagerTools:
         from app.sandbox.sandbox_manager import SandboxManager
 
         manager = SandboxManager(
-            user_id="test",
-            enable_filesystem=False,
+            SandboxConfig(user_id="test", enable_filesystem=False),
         )
 
         tools = manager.get_planner_tools()
@@ -231,9 +228,7 @@ class TestSandboxManagerTools:
         from app.sandbox.sandbox_manager import SandboxManager
 
         manager = SandboxManager(
-            user_id="test",
-            enable_filesystem=False,
-            enable_shell=False,
+            SandboxConfig(user_id="test", enable_filesystem=False, enable_shell=False),
         )
 
         tools = manager.get_executor_tools()
@@ -244,8 +239,7 @@ class TestSandboxManagerTools:
         from app.sandbox.sandbox_manager import SandboxManager
 
         manager = SandboxManager(
-            user_id="test",
-            enable_filesystem=True,
+            SandboxConfig(user_id="test", enable_filesystem=True),
         )
 
         asyncio.run(manager.start())
@@ -265,9 +259,7 @@ class TestSandboxManagerTools:
         mock_client.containers.run.return_value = mock_container
 
         manager = SandboxManager(
-            user_id="test",
-            enable_filesystem=True,
-            enable_shell=True,
+            SandboxConfig(user_id="test", enable_filesystem=True, enable_shell=True),
         )
 
         asyncio.run(manager.start())
@@ -282,10 +274,10 @@ class TestSandboxManagerUserMcp:
         from app.sandbox.sandbox_manager import SandboxManager
 
         manager = SandboxManager(
-            user_id="test",
+            SandboxConfig(user_id="test"),
             mcp_servers=[
-                {"url": "https://example.com/mcp"},
-                {"command": "npx", "args": ["-y", "@mcp/server-github"]},
+                MCPSse(transport="sse", url="https://example.com/mcp"),
+                MCPStdio(transport="stdio", command="npx", args=["-y", "@mcp/server-github"]),
             ],
         )
 
@@ -297,10 +289,10 @@ class TestSandboxManagerUserMcp:
         from app.sandbox.sandbox_manager import SandboxManager
 
         manager = SandboxManager(
-            user_id="test",
+            SandboxConfig(user_id="test"),
             mcp_servers=[
-                {"url": "https://example.com/mcp"},
-                {"command": "npx", "args": ["-y", "@mcp/server-github"]},
+                MCPSse(transport="sse", url="https://example.com/mcp"),
+                MCPStdio(transport="stdio", command="npx", args=["-y", "@mcp/server-github"]),
             ],
         )
 
@@ -314,8 +306,8 @@ class TestSandboxManagerUserMcp:
         from app.sandbox.sandbox_manager import SandboxManager
 
         manager = SandboxManager(
-            user_id="test",
-            mcp_servers=[{"url": "https://example.com/mcp"}],
+            SandboxConfig(user_id="test"),
+            mcp_servers=[MCPSse(transport="sse", url="https://example.com/mcp")],
         )
 
         asyncio.run(manager.start())
@@ -328,13 +320,14 @@ class TestSandboxManagerUserMcp:
 class TestSandboxManagerUserspace:
     def test_userspace_directory_created_on_start(self):
         """Should create userspace directory on start"""
-        from app.sandbox.sandbox_manager import SandboxManager
         import tempfile
         from pathlib import Path
 
+        from app.sandbox.sandbox_manager import SandboxManager
+
         # Use temp dir to avoid polluting real userspace
-        with patch.object(SandboxManager, 'USERSPACE_DIR', Path(tempfile.mkdtemp())):
-            manager = SandboxManager(user_id="testuser")
+        with patch.object(SandboxManager, "USERSPACE_DIR", Path(tempfile.mkdtemp())):
+            manager = SandboxManager(SandboxConfig(user_id="testuser"))
             asyncio.run(manager.start())
 
             assert manager.user_workspace.exists()
@@ -344,7 +337,7 @@ class TestSandboxManagerUserspace:
         """Same user_id should use the same userspace directory"""
         from app.sandbox.sandbox_manager import SandboxManager
 
-        manager1 = SandboxManager(user_id="alice")
-        manager2 = SandboxManager(user_id="alice")
+        manager1 = SandboxManager(SandboxConfig(user_id="alice"))
+        manager2 = SandboxManager(SandboxConfig(user_id="alice"))
 
         assert manager1.user_workspace == manager2.user_workspace

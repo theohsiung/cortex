@@ -1,4 +1,3 @@
-import pytest
 from app.task.task_manager import TaskManager
 
 

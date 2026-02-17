@@ -1,4 +1,5 @@
 import pytest
+
 from app.task.plan import Plan
 
 
@@ -13,10 +14,7 @@ class TestPlan:
 
     def test_create_plan_with_title_and_steps(self):
         """Should create plan with provided values"""
-        plan = Plan(
-            title="Test Plan",
-            steps=["Step 1", "Step 2", "Step 3"]
-        )
+        plan = Plan(title="Test Plan", steps=["Step 1", "Step 2", "Step 3"])
 
         assert plan.title == "Test Plan"
         assert len(plan.steps) == 3
@@ -28,7 +26,7 @@ class TestPlan:
         plan = Plan(
             title="Test",
             steps=["A", "B", "C"],
-            dependencies={2: [0, 1]}  # C depends on both A and B
+            dependencies={2: [0, 1]},  # C depends on both A and B
         )
 
         assert plan.dependencies == {2: [0, 1]}
@@ -36,11 +34,7 @@ class TestPlan:
     def test_create_plan_normalizes_string_keys(self):
         """Should convert string keys to integers (JSON parsing produces strings)"""
         # Simulate JSON-parsed dependencies (keys are strings)
-        plan = Plan(
-            title="Test",
-            steps=["A", "B", "C"],
-            dependencies={"1": ["0"], "2": ["1"]}
-        )
+        plan = Plan(title="Test", steps=["A", "B", "C"], dependencies={"1": ["0"], "2": ["1"]})
 
         # Keys and values should be normalized to integers
         assert plan.dependencies == {1: [0], 2: [1]}
@@ -59,11 +53,7 @@ class TestPlan:
         """Should update plan properties"""
         plan = Plan()
 
-        plan.update(
-            title="Updated",
-            steps=["New Step 1", "New Step 2"],
-            dependencies={1: [0]}
-        )
+        plan.update(title="Updated", steps=["New Step 1", "New Step 2"], dependencies={1: [0]})
 
         assert plan.title == "Updated"
         assert plan.steps == ["New Step 1", "New Step 2"]
@@ -113,7 +103,7 @@ class TestPlan:
         """Should return multiple ready steps for parallel execution"""
         plan = Plan(
             steps=["A", "B", "C", "D"],
-            dependencies={2: [0], 3: [1]}  # C depends on A, D depends on B
+            dependencies={2: [0], 3: [1]},  # C depends on A, D depends on B
         )
 
         ready = plan.get_ready_steps()
@@ -154,7 +144,7 @@ class TestPlanToolHistory:
             tool="run_python",
             args={"code": "print('hello')"},
             result={"exit_code": 0, "stdout": "hello\n"},
-            timestamp="2026-01-20T10:00:00"
+            timestamp="2026-01-20T10:00:00",
         )
 
         assert 0 in plan.step_tool_history
@@ -171,7 +161,7 @@ class TestPlanToolHistory:
             tool="test_tool",
             args={},
             result=long_result,
-            timestamp="2026-01-20T10:00:00"
+            timestamp="2026-01-20T10:00:00",
         )
 
         result_str = plan.step_tool_history[0][0]["result"]
@@ -247,7 +237,7 @@ class TestPlanToolCallWithStatus:
             step_index=0,
             tool="write_file",
             args={"path": "main.py", "content": "..."},
-            call_time="2026-01-26T10:00:00"
+            call_time="2026-01-26T10:00:00",
         )
 
         assert 0 in plan.step_tool_history
@@ -280,7 +270,7 @@ class TestPlanToolCallWithStatus:
             step_index=0,
             tool="write_file",
             result="File written successfully",
-            response_time="2026-01-26T10:00:01"
+            response_time="2026-01-26T10:00:01",
         )
 
         call = plan.step_tool_history[0][0]
@@ -398,10 +388,7 @@ class TestPlanDownstreamSteps:
         """Should return all downstream in parallel DAG"""
         # 0 → 1
         #   ↘ 2
-        plan = Plan(
-            steps=["A", "B", "C"],
-            dependencies={1: [0], 2: [0]}
-        )
+        plan = Plan(steps=["A", "B", "C"], dependencies={1: [0], 2: [0]})
 
         downstream = plan.get_downstream_steps(0)
 
@@ -415,7 +402,7 @@ class TestPlanDownstreamSteps:
         #               ↘ 7
         plan = Plan(
             steps=["S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7"],
-            dependencies={1: [0], 2: [0], 3: [1], 4: [2], 5: [3, 4], 6: [5], 7: [5]}
+            dependencies={1: [0], 2: [0], 3: [1], 4: [2], 5: [3, 4], 6: [5], 7: [5]},
         )
 
         # Step 5 should have 6, 7 as downstream
@@ -432,10 +419,7 @@ class TestPlanDownstreamSteps:
 
     def test_get_downstream_steps_returns_sorted(self):
         """Should return downstream steps in sorted order"""
-        plan = Plan(
-            steps=["A", "B", "C", "D"],
-            dependencies={1: [0], 2: [0], 3: [0]}
-        )
+        plan = Plan(steps=["A", "B", "C", "D"], dependencies={1: [0], 2: [0], 3: [0]})
 
         downstream = plan.get_downstream_steps(0)
 
@@ -460,8 +444,7 @@ class TestPlanDAGOperations:
     def test_remove_steps_multiple(self):
         """Should remove multiple steps"""
         plan = Plan(
-            steps=["S0", "S1", "S2", "S3", "S4"],
-            dependencies={1: [0], 2: [0], 3: [1, 2], 4: [3]}
+            steps=["S0", "S1", "S2", "S3", "S4"], dependencies={1: [0], 2: [0], 3: [1, 2], 4: [3]}
         )
         plan.mark_step(0, step_status="completed")
         plan.mark_step(1, step_status="completed")
@@ -505,7 +488,7 @@ class TestPlanDAGOperations:
         plan.add_steps(
             new_steps=["C", "D"],
             new_dependencies={0: [], 1: [0]},  # Relative to new steps
-            insert_after=1
+            insert_after=1,
         )
 
         assert plan.steps == ["A", "B", "C", "D"]
@@ -527,20 +510,13 @@ class TestPlanDAGOperations:
 
     def test_add_steps_connects_to_completed(self):
         """Should connect first new step to last completed step"""
-        plan = Plan(
-            steps=["S0", "S1", "S2"],
-            dependencies={1: [0], 2: [1]}
-        )
+        plan = Plan(steps=["S0", "S1", "S2"], dependencies={1: [0], 2: [1]})
         plan.mark_step(0, step_status="completed")
         plan.mark_step(1, step_status="completed")
 
         # Replace S2 with new steps
         plan.remove_steps([2])
-        plan.add_steps(
-            new_steps=["New1", "New2"],
-            new_dependencies={0: [], 1: [0]},
-            insert_after=1
-        )
+        plan.add_steps(new_steps=["New1", "New2"], new_dependencies={0: [], 1: [0]}, insert_after=1)
 
         # New1 (index 2) should depend on S1 (index 1)
         assert 1 in plan.dependencies.get(2, [])
@@ -605,18 +581,14 @@ class TestPlanIntents:
     def test_custom_intents(self):
         """Should accept custom intents"""
         plan = Plan(
-            steps=["Generate code", "Review code"],
-            step_intents={0: "generate", 1: "review"}
+            steps=["Generate code", "Review code"], step_intents={0: "generate", 1: "review"}
         )
         assert plan.step_intents[0] == "generate"
         assert plan.step_intents[1] == "review"
 
     def test_partial_intents_fills_default(self):
         """Missing intents should default to 'default'"""
-        plan = Plan(
-            steps=["Step A", "Step B", "Step C"],
-            step_intents={1: "generate"}
-        )
+        plan = Plan(steps=["Step A", "Step B", "Step C"], step_intents={1: "generate"})
         assert plan.step_intents[0] == "default"
         assert plan.step_intents[1] == "generate"
         assert plan.step_intents[2] == "default"
@@ -624,10 +596,7 @@ class TestPlanIntents:
     def test_update_with_intents(self):
         """update() should accept and set intents"""
         plan = Plan(steps=["Old step"])
-        plan.update(
-            steps=["New A", "New B"],
-            step_intents={0: "generate", 1: "review"}
-        )
+        plan.update(steps=["New A", "New B"], step_intents={0: "generate", 1: "review"})
         assert plan.step_intents == {0: "generate", 1: "review"}
 
     def test_update_without_intents_resets_to_default(self):
@@ -641,24 +610,20 @@ class TestPlanIntents:
         plan = Plan(
             steps=["A", "B", "C"],
             dependencies={1: [0], 2: [1]},
-            step_intents={0: "generate", 1: "review", 2: "fix"}
+            step_intents={0: "generate", 1: "review", 2: "fix"},
         )
         plan.remove_steps([1])
         assert plan.step_intents == {0: "generate", 1: "fix"}
 
     def test_add_steps_with_intents(self):
         """add_steps() should accept intents for new steps"""
-        plan = Plan(
-            steps=["A"],
-            dependencies={},
-            step_intents={0: "default"}
-        )
+        plan = Plan(steps=["A"], dependencies={}, step_intents={0: "default"})
         plan.mark_step(0, step_status="completed")
         plan.add_steps(
             new_steps=["B", "C"],
             new_dependencies={1: [0]},
             insert_after=0,
-            new_intents={0: "generate", 1: "review"}
+            new_intents={0: "generate", 1: "review"},
         )
         assert plan.step_intents[1] == "generate"
         assert plan.step_intents[2] == "review"
@@ -667,19 +632,12 @@ class TestPlanIntents:
         """add_steps() without intents should default to 'default'"""
         plan = Plan(steps=["A"], dependencies={}, step_intents={0: "default"})
         plan.mark_step(0, step_status="completed")
-        plan.add_steps(
-            new_steps=["B"],
-            new_dependencies={},
-            insert_after=0
-        )
+        plan.add_steps(new_steps=["B"], new_dependencies={}, insert_after=0)
         assert plan.step_intents[1] == "default"
 
     def test_get_step_intent(self):
         """get_step_intent() should return intent for a step"""
-        plan = Plan(
-            steps=["A", "B"],
-            step_intents={0: "generate", 1: "review"}
-        )
+        plan = Plan(steps=["A", "B"], step_intents={0: "generate", 1: "review"})
         assert plan.get_step_intent(0) == "generate"
         assert plan.get_step_intent(1) == "review"
 
@@ -693,7 +651,7 @@ class TestPlanIntents:
         plan = Plan(
             steps=["A", "B", "C"],
             dependencies={1: [0], 2: [1]},
-            step_intents={0: "generate", 1: "review", 2: "fix"}
+            step_intents={0: "generate", 1: "review", 2: "fix"},
         )
         plan.mark_step(0, step_status="completed")
         # Insert 2 new steps after step 0
@@ -701,14 +659,14 @@ class TestPlanIntents:
             new_steps=["X", "Y"],
             new_dependencies={1: [0]},
             insert_after=0,
-            new_intents={0: "default", 1: "generate"}
+            new_intents={0: "default", 1: "generate"},
         )
         # Steps: A, X, Y, B, C
-        assert plan.step_intents[0] == "generate"   # A (unchanged)
-        assert plan.step_intents[1] == "default"     # X (new)
-        assert plan.step_intents[2] == "generate"    # Y (new)
-        assert plan.step_intents[3] == "review"      # B (shifted from 1)
-        assert plan.step_intents[4] == "fix"         # C (shifted from 2)
+        assert plan.step_intents[0] == "generate"  # A (unchanged)
+        assert plan.step_intents[1] == "default"  # X (new)
+        assert plan.step_intents[2] == "generate"  # Y (new)
+        assert plan.step_intents[3] == "review"  # B (shifted from 1)
+        assert plan.step_intents[4] == "fix"  # C (shifted from 2)
 
 
 class TestPlanReplanAttempts:

@@ -1,3 +1,7 @@
+"""Prompt templates for the executor agent."""
+
+from __future__ import annotations
+
 EXECUTOR_SYSTEM_PROMPT = """You are a task execution agent. Your job is to execute assigned steps using the tools available to you.
 
 When executing a step:

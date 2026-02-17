@@ -1,8 +1,12 @@
+from __future__ import annotations
+
+from typing import AsyncGenerator, Sequence
+
 from google.adk.agents import BaseAgent, LlmAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event
-from google.adk.tools import ToolContext, FunctionTool
-from typing import AsyncGenerator, Optional, List
+from google.adk.tools import FunctionTool, ToolContext
+from google.genai.types import Content, Part
 
 # Standard completion phrase key, can be imported by users
 COMPLETION_PHRASE = "計畫可行，且符合所有限制條件。"
@@ -29,11 +33,11 @@ class GenericLoop(BaseAgent):
 
     max_iterations: int = 3
     exit_key: str = "loop_complete"
-    sub_agents: List[LlmAgent] = []
+    sub_agents: Sequence[LlmAgent] = ()  # type: ignore[assignment]
 
     def __init__(
         self,
-        sub_agents: List[LlmAgent],
+        sub_agents: Sequence[LlmAgent],
         max_iterations: int = 3,
         exit_key: str = "loop_complete",
         name: str = "generic_loop",
@@ -44,9 +48,7 @@ class GenericLoop(BaseAgent):
         self.max_iterations = max_iterations
         self.exit_key = exit_key
 
-    async def _run_async_impl(
-        self, ctx: InvocationContext
-    ) -> AsyncGenerator[Event, None]:
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         # Reset exit flag at start of the loop
         if ctx.session and ctx.session.state:
             ctx.session.state[self.exit_key] = False
@@ -54,7 +56,7 @@ class GenericLoop(BaseAgent):
         for i in range(self.max_iterations):
             yield Event(
                 author=self.name,
-                content={"parts": [{"text": f"\n🔄 進入迴圈 Round {i+1}...\n"}]},
+                content=Content(parts=[Part(text=f"\n🔄 進入迴圈 Round {i + 1}...\n")]),
             )
 
             # Run all sub-agents in order
@@ -66,13 +68,13 @@ class GenericLoop(BaseAgent):
             if ctx.session and ctx.session.state.get(self.exit_key):
                 yield Event(
                     author=self.name,
-                    content={"parts": [{"text": "\n✅ 條件達成，結束迴圈。\n"}]},
+                    content=Content(parts=[Part(text="\n✅ 條件達成，結束迴圈。\n")]),
                 )
                 break
         else:
             yield Event(
                 author=self.name,
-                content={"parts": [{"text": "\n⚠️ 達到最大迭代次數，強制結束。\n"}]},
+                content=Content(parts=[Part(text="\n⚠️ 達到最大迭代次數，強制結束。\n")]),
             )
 
 

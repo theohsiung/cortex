@@ -1,11 +1,16 @@
-from typing import Any, Callable, TYPE_CHECKING
+"""Planner agent for creating and updating plans."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Callable
+
 from app.agents.base.base_agent import BaseAgent
 from app.agents.planner.prompts import PLANNER_SYSTEM_PROMPT, build_intent_prompt_section
 from app.task.task_manager import TaskManager
 from app.tools.plan_toolkit import PlanToolkit
 
 if TYPE_CHECKING:
-    from google.adk.agents import LlmAgent
+    pass
 
 
 class PlannerAgent(BaseAgent):
@@ -28,20 +33,19 @@ class PlannerAgent(BaseAgent):
     def __init__(
         self,
         plan_id: str,
-        model: Any = None,
-        agent_factory: Callable[[list], Any] = None,
-        extra_tools: list = None,
-        available_intents: dict[str, str] = None,
-    ):
-        """
-        Initialize PlannerAgent.
+        model: Any | None = None,
+        agent_factory: Callable[[list], Any] | None = None,
+        extra_tools: list | None = None,
+        available_intents: dict[str, str] | None = None,
+    ) -> None:
+        """Initialize PlannerAgent.
 
         Args:
-            plan_id: ID of the plan in TaskManager
-            model: LLM model (required if agent_factory is None)
-            agent_factory: Optional factory function that receives tools and returns an agent
-            extra_tools: Additional tools (e.g., from sandbox) to include
-            available_intents: Dict mapping intent names to descriptions for prompt injection
+            plan_id: ID of the plan in TaskManager.
+            model: LLM model (required if agent_factory is None).
+            agent_factory: Optional factory function that receives tools and returns an agent.
+            extra_tools: Additional tools (e.g., from sandbox) to include.
+            available_intents: Dict mapping intent names to descriptions for prompt injection.
         """
         plan = TaskManager.get_plan(plan_id)
         if plan is None:
@@ -83,11 +87,9 @@ class PlannerAgent(BaseAgent):
             "create_plan": toolkit.create_plan,
             "update_plan": toolkit.update_plan,
         }
-        super().__init__(
-            agent=agent, tool_functions=tool_functions, plan_id=plan_id
-        )
+        super().__init__(agent=agent, tool_functions=tool_functions, plan_id=plan_id)
 
     async def create_plan(self, task: str) -> str:
-        """Create a plan for the given task"""
+        """Create a plan for the given task."""
         result = await self.execute(f"Create a plan for: {task}")
         return result.output

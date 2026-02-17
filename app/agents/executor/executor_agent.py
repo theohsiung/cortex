@@ -1,11 +1,16 @@
+"""Executor agent for executing plan steps."""
+
+from __future__ import annotations
+
 import inspect
-from typing import Any, Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
+
 from app.agents.base.base_agent import BaseAgent, ExecutionContext
 from app.agents.executor.prompts import EXECUTOR_SYSTEM_PROMPT
 from app.task.task_manager import TaskManager
 
 if TYPE_CHECKING:
-    from google.adk.agents import LlmAgent
+    pass
 
 
 class ExecutorAgent(BaseAgent):
@@ -37,21 +42,20 @@ class ExecutorAgent(BaseAgent):
     def __init__(
         self,
         plan_id: str,
-        model: Any = None,
-        agent_factory: Callable = None,
-        extra_tools: list = None,
-    ):
-        """
-        Initialize ExecutorAgent.
+        model: Any | None = None,
+        agent_factory: Callable | None = None,
+        extra_tools: list | None = None,
+    ) -> None:
+        """Initialize ExecutorAgent.
 
         Args:
-            plan_id: ID of the plan in TaskManager
-            model: LLM model (required if agent_factory is None)
+            plan_id: ID of the plan in TaskManager.
+            model: LLM model (required if agent_factory is None).
             agent_factory: Optional factory function that returns an agent.
-                           Supports two signatures:
-                           - No args: factory() - for external self-contained agents
-                           - With tools: factory(tools) - legacy backward compat
-            extra_tools: Additional tools (e.g., from sandbox) to include
+                Supports two signatures:
+                - No args: factory() - for external self-contained agents
+                - With tools: factory(tools) - legacy backward compat.
+            extra_tools: Additional tools (e.g., from sandbox) to include.
         """
         plan = TaskManager.get_plan(plan_id)
         if plan is None:
@@ -81,9 +85,9 @@ class ExecutorAgent(BaseAgent):
         super().__init__(agent=agent, tool_functions={}, plan_id=plan_id)
 
     async def execute_step(self, step_index: int, context: str = "") -> str:
-        """Execute a specific step"""
+        """Execute a specific step."""
         exec_context = ExecutionContext(step_index=step_index)
-
+        assert self.plan is not None
         step_desc = self.plan.steps[step_index]
         query = f"Execute step {step_index}: {step_desc}"
         if context:

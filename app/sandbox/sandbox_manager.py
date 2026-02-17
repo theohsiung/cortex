@@ -1,18 +1,24 @@
+"""Sandbox manager for Docker container and MCP toolset lifecycle."""
+
+from __future__ import annotations
+
+import logging
 import uuid
-from typing import Any, TYPE_CHECKING
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import docker
+
+from app.config import MCPServer, MCPSse, MCPStdio, SandboxConfig
 
 if TYPE_CHECKING:
     from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 
+logger = logging.getLogger(__name__)
+
 
 class SandboxManager:
     """Manages Docker container and MCP toolsets for sandboxed execution."""
-
-    # Default Docker image for sandbox
-    DEFAULT_IMAGE = "cortex-sandbox:latest"
 
     # Path to MCP servers in container
     SHELL_SERVER = "/opt/mcp_servers/shell_server.py"
@@ -25,38 +31,31 @@ class SandboxManager:
 
     def __init__(
         self,
-        user_id: str | None = None,
-        enable_filesystem: bool = False,
-        enable_shell: bool = False,
-        mcp_servers: list[dict] | None = None,
-        docker_image: str | None = None,
-    ):
-        """
-        Initialize SandboxManager.
+        config: SandboxConfig,
+        mcp_servers: list[MCPServer] | None = None,
+    ) -> None:
+        """Initialize SandboxManager.
 
         Args:
-            user_id: User identifier for userspace directory. Auto-generated if not provided.
-            enable_filesystem: Enable built-in filesystem MCP tool (local, uses @anthropic/mcp-filesystem)
-            enable_shell: Enable built-in shell MCP tool (runs in Docker container)
-            mcp_servers: List of user-provided MCP server configs
-            docker_image: Custom Docker image (default: cortex-sandbox:latest)
+            config: Sandbox configuration (filesystem, shell, docker_image, user_id).
+            mcp_servers: List of typed MCP server configs (MCPStdio or MCPSse).
         """
         # Generate user_id if not provided
-        self.user_id = user_id or f"auto-{uuid.uuid4().hex[:8]}"
+        self.user_id = config.user_id or f"auto-{uuid.uuid4().hex[:8]}"
         self.user_workspace = self.USERSPACE_DIR / self.user_id
 
-        self.enable_filesystem = enable_filesystem
-        self.enable_shell = enable_shell
+        self.enable_filesystem = config.enable_filesystem
+        self.enable_shell = config.enable_shell
         self.mcp_servers = mcp_servers or []
-        self.docker_image = docker_image or self.DEFAULT_IMAGE
-        self._container = None
-        self._client = None
-        self._filesystem_toolset: "McpToolset | None" = None
-        self._filesystem_toolset_readonly: "McpToolset | None" = None
-        self._shell_toolset: "McpToolset | None" = None
+        self.docker_image = config.docker_image
+        self._container: Any = None
+        self._client: docker.DockerClient | None = None
+        self._filesystem_toolset: McpToolset | None = None
+        self._filesystem_toolset_readonly: McpToolset | None = None
+        self._shell_toolset: McpToolset | None = None
         self._user_toolsets: list[Any] = []
 
-    async def start(self):
+    async def start(self) -> None:
         """Start Docker container (if shell enabled) and initialize MCP toolsets."""
         # Ensure userspace directory exists
         self.user_workspace.mkdir(parents=True, exist_ok=True)
@@ -68,36 +67,38 @@ class SandboxManager:
         # Initialize MCP toolsets
         await self._init_toolsets()
 
-    async def _start_container(self):
+    async def _start_container(self) -> None:
         """Start Docker container for shell execution."""
         if self._container is not None:
             return
 
         try:
-            self._client = docker.from_env()
-            self._client.ping()
+            client = docker.from_env()
+            client.ping()
+            self._client = client
         except Exception as e:
             raise RuntimeError(
-                f"Docker is not available. Please ensure Docker is installed and running. Error: {e}"
+                "Docker is not available. Please ensure Docker is"
+                f" installed and running. Error: {e}"
             )
 
         # Build sandbox image if not exists
         await self._ensure_image()
 
         # Create container with user_workspace mounted
+        assert self._client is not None
         self._container = self._client.containers.run(
             self.docker_image,
             command="tail -f /dev/null",  # Keep container running
             detach=True,
-            volumes={
-                str(self.user_workspace): {"bind": "/workspace", "mode": "rw"}
-            },
+            volumes={str(self.user_workspace): {"bind": "/workspace", "mode": "rw"}},
             working_dir="/workspace",
             auto_remove=False,
         )
 
-    async def _ensure_image(self):
+    async def _ensure_image(self) -> None:
         """Ensure the sandbox Docker image exists, build if necessary."""
+        assert self._client is not None
         try:
             self._client.images.get(self.docker_image)
         except docker.errors.ImageNotFound:
@@ -109,10 +110,10 @@ class SandboxManager:
                 rm=True,
             )
 
-    async def _init_toolsets(self):
+    async def _init_toolsets(self) -> None:
         """Initialize MCP toolsets based on configuration."""
-        from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
         from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
+        from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
         from mcp import StdioServerParameters
 
         # Create filesystem toolset (local, using @anthropic/mcp-filesystem)
@@ -155,34 +156,34 @@ class SandboxManager:
         # Create user MCP toolsets
         await self._init_user_toolsets()
 
-    async def _init_user_toolsets(self):
+    async def _init_user_toolsets(self) -> None:
         """Initialize user-provided MCP toolsets."""
-        from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
         from google.adk.tools.mcp_tool.mcp_session_manager import (
-            StdioConnectionParams,
             SseConnectionParams,
+            StdioConnectionParams,
         )
+        from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
         from mcp import StdioServerParameters
 
-        for server_config in self.mcp_servers:
+        for server in self.mcp_servers:
             toolset = None
 
-            if "url" in server_config:
+            if isinstance(server, MCPSse):
                 # SSE server (remote)
                 toolset = McpToolset(
                     connection_params=SseConnectionParams(
-                        url=server_config["url"],
-                        headers=server_config.get("headers"),
+                        url=server.url,
+                        headers=server.headers or None,
                     )
                 )
-            elif "command" in server_config:
+            elif isinstance(server, MCPStdio):
                 # Stdio server (local, runs outside container)
                 toolset = McpToolset(
                     connection_params=StdioConnectionParams(
                         server_params=StdioServerParameters(
-                            command=server_config["command"],
-                            args=server_config.get("args", []),
-                            env=server_config.get("env"),
+                            command=server.command,
+                            args=server.args,
+                            env=server.env or None,
                         )
                     )
                 )
@@ -190,14 +191,18 @@ class SandboxManager:
             if toolset is not None:
                 self._user_toolsets.append(toolset)
 
-    async def stop(self):
+    async def stop(self) -> None:
         """Stop Docker container and cleanup."""
         if self._container is not None:
             try:
                 self._container.stop(timeout=5)
                 self._container.remove()
             except Exception:
-                pass  # Container may already be stopped/removed
+                logger.debug(
+                    "Error stopping container %s",
+                    self._container.id,
+                    exc_info=True,
+                )
             finally:
                 self._container = None
 
@@ -223,12 +228,11 @@ class SandboxManager:
         tools.extend(self._user_toolsets)
         return tools
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> SandboxManager:
         """Async context manager entry."""
         await self.start()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         """Async context manager exit."""
         await self.stop()
-        return False

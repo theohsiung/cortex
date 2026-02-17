@@ -1,4 +1,6 @@
-"""Prompts for ReplannerAgent"""
+"""Prompts for ReplannerAgent."""
+
+from __future__ import annotations
 
 REPLANNER_SYSTEM_PROMPT = """You are a plan redesign specialist. When a step fails due to tool call issues, you analyze the situation and redesign the affected steps.
 
@@ -97,7 +99,7 @@ def build_replan_prompt(
     completed_tool_history: str,
     steps_to_replan: list[tuple[int, str]],
     available_tools: list[str],
-    available_intents: dict[str, str] = None,
+    available_intents: dict[str, str] | None = None,
 ) -> str:
     """
     Build the prompt for replanning.
@@ -111,17 +113,13 @@ def build_replan_prompt(
     Returns:
         Complete prompt for the replanner
     """
-    steps_section = "\n".join(
-        f"- Step {idx}: {desc}" for idx, desc in steps_to_replan
-    )
+    steps_section = "\n".join(f"- Step {idx}: {desc}" for idx, desc in steps_to_replan)
     tools_section = "\n".join(f"- {tool}" for tool in available_tools)
 
     # Build available intents section
     intents_section = ""
     if available_intents and len(available_intents) > 1:
-        intents_lines = "\n".join(
-            f"- `{name}`: {desc}" for name, desc in available_intents.items()
-        )
+        intents_lines = "\n".join(f"- `{name}`: {desc}" for name, desc in available_intents.items())
         intents_section = f"""
 ---
 
