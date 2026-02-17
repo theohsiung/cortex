@@ -1,3 +1,8 @@
+"""Sandbox manager for Docker container and MCP toolset lifecycle."""
+
+from __future__ import annotations
+
+import logging
 import uuid
 from typing import Any, TYPE_CHECKING
 from pathlib import Path
@@ -8,6 +13,8 @@ from app.config import SandboxConfig, MCPServer, MCPStdio, MCPSse
 
 if TYPE_CHECKING:
     from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
+
+logger = logging.getLogger(__name__)
 
 
 class SandboxManager:
@@ -26,9 +33,8 @@ class SandboxManager:
         self,
         config: SandboxConfig,
         mcp_servers: list[MCPServer] | None = None,
-    ):
-        """
-        Initialize SandboxManager.
+    ) -> None:
+        """Initialize SandboxManager.
 
         Args:
             config: Sandbox configuration (filesystem, shell, docker_image, user_id).
@@ -44,12 +50,12 @@ class SandboxManager:
         self.docker_image = config.docker_image
         self._container = None
         self._client = None
-        self._filesystem_toolset: "McpToolset | None" = None
-        self._filesystem_toolset_readonly: "McpToolset | None" = None
-        self._shell_toolset: "McpToolset | None" = None
+        self._filesystem_toolset: McpToolset | None = None
+        self._filesystem_toolset_readonly: McpToolset | None = None
+        self._shell_toolset: McpToolset | None = None
         self._user_toolsets: list[Any] = []
 
-    async def start(self):
+    async def start(self) -> None:
         """Start Docker container (if shell enabled) and initialize MCP toolsets."""
         # Ensure userspace directory exists
         self.user_workspace.mkdir(parents=True, exist_ok=True)
@@ -61,7 +67,7 @@ class SandboxManager:
         # Initialize MCP toolsets
         await self._init_toolsets()
 
-    async def _start_container(self):
+    async def _start_container(self) -> None:
         """Start Docker container for shell execution."""
         if self._container is not None:
             return
@@ -89,7 +95,7 @@ class SandboxManager:
             auto_remove=False,
         )
 
-    async def _ensure_image(self):
+    async def _ensure_image(self) -> None:
         """Ensure the sandbox Docker image exists, build if necessary."""
         try:
             self._client.images.get(self.docker_image)
@@ -102,7 +108,7 @@ class SandboxManager:
                 rm=True,
             )
 
-    async def _init_toolsets(self):
+    async def _init_toolsets(self) -> None:
         """Initialize MCP toolsets based on configuration."""
         from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
         from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
@@ -148,7 +154,7 @@ class SandboxManager:
         # Create user MCP toolsets
         await self._init_user_toolsets()
 
-    async def _init_user_toolsets(self):
+    async def _init_user_toolsets(self) -> None:
         """Initialize user-provided MCP toolsets."""
         from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
         from google.adk.tools.mcp_tool.mcp_session_manager import (
@@ -183,14 +189,16 @@ class SandboxManager:
             if toolset is not None:
                 self._user_toolsets.append(toolset)
 
-    async def stop(self):
+    async def stop(self) -> None:
         """Stop Docker container and cleanup."""
         if self._container is not None:
             try:
                 self._container.stop(timeout=5)
                 self._container.remove()
             except Exception:
-                pass  # Container may already be stopped/removed
+                logger.debug(
+                    "Error stopping container %s", self._container.id, exc_info=True,
+                )
             finally:
                 self._container = None
 
@@ -216,12 +224,12 @@ class SandboxManager:
         tools.extend(self._user_toolsets)
         return tools
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> SandboxManager:
         """Async context manager entry."""
         await self.start()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         """Async context manager exit."""
         await self.stop()
         return False

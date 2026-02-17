@@ -1,9 +1,14 @@
-import pytest
-from unittest.mock import Mock, patch, MagicMock
+"""Tests for the SandboxManager."""
+
+from __future__ import annotations
+
 import asyncio
 import sys
+from unittest.mock import MagicMock, Mock, patch
 
-from app.config import SandboxConfig, MCPSse, MCPStdio
+import pytest
+
+from app.config import MCPSse, MCPStdio, SandboxConfig
 
 # Mock google.adk to avoid import issues in tests
 mock_adk_tools = MagicMock()

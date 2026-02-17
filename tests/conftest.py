@@ -1,6 +1,10 @@
+"""Shared test fixtures and configuration."""
+
+from __future__ import annotations
+
 import sys
 from pathlib import Path
-from unittest.mock import Mock, MagicMock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -17,9 +21,10 @@ mock_adk_agents.SequentialAgent = Mock
 mock_adk_agents.ParallelAgent = Mock
 
 
-# Create a real FunctionDeclaration class for testing
 class MockFunctionDeclaration:
-    def __init__(self, name, description=None, parameters=None):
+    """Mock replacement for google.genai.types.FunctionDeclaration."""
+
+    def __init__(self, name: str, description: str | None = None, parameters: dict | None = None) -> None:
         self.name = name
         self.description = description
         self.parameters = parameters

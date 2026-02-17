@@ -1,14 +1,20 @@
-import pytest
+"""Tests for the Cortex orchestrator."""
+
+from __future__ import annotations
+
 import asyncio
-import types
 import sys
-from unittest.mock import Mock, AsyncMock, patch, MagicMock, call
-from cortex import Cortex
-from app.task.task_manager import TaskManager
-from app.task.plan import Plan
-from app.agents.verifier.verifier import VerifyResult
-from app.config import CortexConfig, ModelConfig, SandboxConfig, ExecutorEntry, MCPSse
+import types
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+
+import pytest
+
+from app.agents.verifier.verifier import VerifyResult
+from app.config import CortexConfig, ExecutorEntry, MCPSse, ModelConfig, SandboxConfig
+from app.task.plan import Plan
+from app.task.task_manager import TaskManager
+from cortex import Cortex
 
 
 def make_config(**overrides) -> CortexConfig:

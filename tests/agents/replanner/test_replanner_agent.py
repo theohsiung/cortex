@@ -60,7 +60,7 @@ class TestReplannerAgentInit:
         plan = Plan(steps=["A", "B"])
         TaskManager.set_plan("test_plan", plan)
 
-        with patch("app.agents.replanner.replanner_agent.LlmAgent"):
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
 
         assert agent.plan == plan
@@ -98,7 +98,7 @@ class TestReplannerAgentBuildPrompt:
         plan.add_tool_call(0, "read_file", {"path": "x.py"}, "content", "ts")
         TaskManager.set_plan("test_plan", plan)
 
-        with patch("app.agents.replanner.replanner_agent.LlmAgent"):
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
 
         prompt = agent._build_replan_prompt(
@@ -117,7 +117,7 @@ class TestReplannerAgentBuildPrompt:
         plan.add_tool_call_pending(1, "write_file", {"path": "x.py"}, "ts")
         TaskManager.set_plan("test_plan", plan)
 
-        with patch("app.agents.replanner.replanner_agent.LlmAgent"):
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
 
         prompt = agent._build_replan_prompt(
@@ -133,7 +133,7 @@ class TestReplannerAgentBuildPrompt:
         plan = Plan(steps=["S0", "S1"])
         TaskManager.set_plan("test_plan", plan)
 
-        with patch("app.agents.replanner.replanner_agent.LlmAgent"):
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
 
         prompt = agent._build_replan_prompt(
@@ -159,7 +159,7 @@ class TestReplannerAgentParseResponse:
         plan = Plan(steps=["A"])
         TaskManager.set_plan("test_plan", plan)
 
-        with patch("app.agents.replanner.replanner_agent.LlmAgent"):
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
 
         response = """
@@ -185,7 +185,7 @@ class TestReplannerAgentParseResponse:
         plan = Plan(steps=["A"])
         TaskManager.set_plan("test_plan", plan)
 
-        with patch("app.agents.replanner.replanner_agent.LlmAgent"):
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
 
         response = """
@@ -210,7 +210,7 @@ class TestReplannerAgentParseResponse:
         plan = Plan(steps=["A"])
         TaskManager.set_plan("test_plan", plan)
 
-        with patch("app.agents.replanner.replanner_agent.LlmAgent"):
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
 
         response = "This response has no valid JSON"
@@ -243,7 +243,7 @@ class TestReplannerAgentReplanSubgraph:
         ```
         """
 
-        with patch("app.agents.replanner.replanner_agent.LlmAgent"):
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
             agent.execute = AsyncMock(return_value=mock_result)
 
@@ -272,7 +272,7 @@ class TestReplannerAgentReplanSubgraph:
         ```
         """
 
-        with patch("app.agents.replanner.replanner_agent.LlmAgent"):
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
             agent.execute = AsyncMock(return_value=mock_result)
 
@@ -314,7 +314,7 @@ class TestReplannerIntents:
         plan = Plan(steps=["A"], dependencies={})
         TaskManager.set_plan("p1", plan)
 
-        with patch("app.agents.replanner.replanner_agent.LlmAgent"):
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             replanner = ReplannerAgent(plan_id="p1", model=MagicMock())
 
         response = '''```json
@@ -333,7 +333,7 @@ class TestReplannerIntents:
         plan = Plan(steps=["A"], dependencies={})
         TaskManager.set_plan("p2", plan)
 
-        with patch("app.agents.replanner.replanner_agent.LlmAgent"):
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             replanner = ReplannerAgent(plan_id="p2", model=MagicMock())
 
         response = '''```json
@@ -352,7 +352,7 @@ class TestReplannerIntents:
         TaskManager.set_plan("p3", plan)
 
         intents = {"default": "General", "generate": "Gen code"}
-        with patch("app.agents.replanner.replanner_agent.LlmAgent"):
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             replanner = ReplannerAgent(
                 plan_id="p3", model=MagicMock(),
                 available_intents=intents
@@ -366,7 +366,7 @@ class TestReplannerIntents:
         TaskManager.set_plan("p4", plan)
 
         intents = {"default": "General", "generate": "Gen code", "review": "Review code"}
-        with patch("app.agents.replanner.replanner_agent.LlmAgent"):
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             replanner = ReplannerAgent(
                 plan_id="p4", model=MagicMock(),
                 available_intents=intents

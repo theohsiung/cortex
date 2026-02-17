@@ -1,12 +1,21 @@
+"""Planner tools for creating and updating execution plans."""
+
+from __future__ import annotations
+
 import functools
+import logging
+
 from google.genai.types import FunctionDeclaration
+
 from app.task.plan import Plan
+
+logger = logging.getLogger(__name__)
 
 
 class PlanToolkit:
-    """Planner tools: create and update plans"""
+    """Planner tools: create and update plans."""
 
-    def __init__(self, plan: Plan):
+    def __init__(self, plan: Plan) -> None:
         self.plan = plan
 
     # Schema definitions
@@ -76,17 +85,17 @@ class PlanToolkit:
         self,
         title: str,
         steps: list[str],
-        dependencies: dict[int, list[int]] = None,
-        intents: dict[int, str] = None,
+        dependencies: dict[int, list[int]] | None = None,
+        intents: dict[int, str] | None = None,
     ) -> str:
-        """Create a new plan with title, steps, optional dependencies and intents"""
+        """Create a new plan with title, steps, optional dependencies and intents."""
         fallback_used = False
         if dependencies is None and len(steps) > 1:
             dependencies = {i: [i - 1] for i in range(1, len(steps))}
             fallback_used = True
-            print(
-                f"\033[33m[PlanToolkit] Warning: No dependencies provided. "
-                f"Using sequential fallback: {dependencies}\033[0m"
+            logger.warning(
+                "No dependencies provided. Using sequential fallback: %s",
+                dependencies,
             )
 
         normalized_intents = self._normalize_intents(intents) if intents else None
@@ -98,18 +107,18 @@ class PlanToolkit:
 
     def update_plan(
         self,
-        title: str = None,
-        steps: list[str] = None,
-        dependencies: dict[int, list[int]] = None,
-        intents: dict[int, str] = None,
+        title: str | None = None,
+        steps: list[str] | None = None,
+        dependencies: dict[int, list[int]] | None = None,
+        intents: dict[int, str] | None = None,
     ) -> str:
-        """Update existing plan"""
+        """Update existing plan."""
         normalized_intents = self._normalize_intents(intents) if intents else None
         self.plan.update(title=title, steps=steps, dependencies=dependencies, step_intents=normalized_intents)
         return f"Plan updated:\n{self.plan.format()}"
 
     def get_tool_declarations(self) -> list[FunctionDeclaration]:
-        """Return schema list for LlmAgent"""
+        """Return schema list for LlmAgent."""
         return [self.CREATE_PLAN_SCHEMA, self.UPDATE_PLAN_SCHEMA]
 
     def get_tool_functions(self, include_aliases: bool = False) -> list:

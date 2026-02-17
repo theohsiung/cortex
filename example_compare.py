@@ -1,9 +1,10 @@
-"""
-Compare single LLM call vs Cortex multi-step execution.
+"""Compare single LLM call vs Cortex multi-step execution.
 
 Usage:
     uv run python example_compare.py
 """
+
+from __future__ import annotations
 
 import asyncio
 import time
@@ -65,7 +66,8 @@ async def cortex_call(config: CortexConfig, query: str) -> tuple[str, float]:
     return result, elapsed
 
 
-async def main():
+async def main() -> None:
+    """Run comparison between single LLM call and Cortex multi-step execution."""
     config = CortexConfig()
 
     # For single_llm_call, create model from config

@@ -1,9 +1,10 @@
-"""
-Example script to run Cortex.
+"""Example script to run Cortex.
 
 Usage:
     uv run python example.py
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -27,7 +28,8 @@ from cortex import Cortex
 from app.config import CortexConfig
 
 
-async def main():
+async def main() -> None:
+    """Run Cortex with a sample query."""
     config = CortexConfig()
     cortex = Cortex(config)
 

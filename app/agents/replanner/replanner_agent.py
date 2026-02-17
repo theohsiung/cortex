@@ -1,5 +1,8 @@
-"""ReplannerAgent - Redesigns failed steps and their downstream dependencies"""
+"""ReplannerAgent - Redesigns failed steps and their downstream dependencies."""
 
+from __future__ import annotations
+
+import functools
 import json
 import re
 from dataclasses import dataclass, field
@@ -9,21 +12,16 @@ from app.agents.base.base_agent import BaseAgent
 from app.agents.replanner.prompts import REPLANNER_SYSTEM_PROMPT, build_replan_prompt
 from app.task.task_manager import TaskManager
 
-# Lazy import to avoid circular imports
-LlmAgent = None
-
-
+@functools.lru_cache(maxsize=1)
 def _get_llm_agent():
-    global LlmAgent
-    if LlmAgent is None:
-        from google.adk.agents import LlmAgent as _LlmAgent
-        LlmAgent = _LlmAgent
+    """Lazy import LlmAgent to avoid circular imports."""
+    from google.adk.agents import LlmAgent
     return LlmAgent
 
 
 @dataclass
 class ReplanResult:
-    """Result from replanning operation"""
+    """Result from replanning operation."""
     action: str  # "redesign" | "give_up"
     new_steps: list[str]
     new_dependencies: dict[int, list[int]]
@@ -47,18 +45,17 @@ class ReplannerAgent(BaseAgent):
     def __init__(
         self,
         plan_id: str,
-        model: Any = None,
-        agent_factory: Callable[[list], Any] = None,
-        available_intents: dict[str, str] = None,
-    ):
-        """
-        Initialize ReplannerAgent.
+        model: Any | None = None,
+        agent_factory: Callable[[list], Any] | None = None,
+        available_intents: dict[str, str] | None = None,
+    ) -> None:
+        """Initialize ReplannerAgent.
 
         Args:
-            plan_id: ID of the plan in TaskManager
-            model: LLM model (required if agent_factory is None)
-            agent_factory: Optional factory function that returns an agent
-            available_intents: Dict of intent_name -> description for routing
+            plan_id: ID of the plan in TaskManager.
+            model: LLM model (required if agent_factory is None).
+            agent_factory: Optional factory function that returns an agent.
+            available_intents: Dict of intent_name -> description for routing.
         """
         self.available_intents = available_intents or {}
         plan = TaskManager.get_plan(plan_id)
@@ -71,8 +68,8 @@ class ReplannerAgent(BaseAgent):
         if agent_factory is not None:
             agent = agent_factory([])
         elif model is not None:
-            LlmAgentClass = _get_llm_agent()
-            agent = LlmAgentClass(
+            llm_agent_class = _get_llm_agent()
+            agent = llm_agent_class(
                 name="replanner",
                 model=model,
                 tools=[],  # Replanner doesn't need tools, just outputs JSON

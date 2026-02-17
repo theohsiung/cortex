@@ -1,4 +1,6 @@
-"""Verifier - Tool call verification and LLM-based output evaluation"""
+"""Verifier - Tool call verification and LLM-based output evaluation."""
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
@@ -7,15 +9,15 @@ from app.task.plan import Plan
 
 @dataclass
 class VerifyResult:
-    """Result from verification"""
+    """Result from verification."""
     passed: bool
     notes: str = ""
 
 
 class Verifier:
-    """Verifies step execution via tool call checking and LLM-based output evaluation"""
+    """Verifies step execution via tool call checking and LLM-based output evaluation."""
 
-    def __init__(self, model: Any = None):
+    def __init__(self, model: Any | None = None) -> None:
         self.model = model
 
     def verify_step(self, plan: Plan, step_idx: int) -> VerifyResult:

@@ -1,18 +1,22 @@
+"""Main Cortex orchestrator for multi-step task execution."""
+
+from __future__ import annotations
+
 import asyncio
 import logging
 import time
 from typing import Callable, Union
 
-from app.task.task_manager import TaskManager
+from app.agents.executor.executor_agent import ExecutorAgent
+from app.agents.planner.planner_agent import PlannerAgent
+from app.agents.replanner.replanner_agent import ReplannerAgent
+from app.agents.verifier.verifier import Verifier
 from app.config import CortexConfig
+from app.sandbox.sandbox_manager import SandboxManager
+from app.task.plan import Plan
+from app.task.task_manager import TaskManager
 
 logger = logging.getLogger(__name__)
-from app.task.plan import Plan
-from app.agents.planner.planner_agent import PlannerAgent
-from app.agents.executor.executor_agent import ExecutorAgent
-from app.agents.verifier.verifier import Verifier
-from app.agents.replanner.replanner_agent import ReplannerAgent
-from app.sandbox.sandbox_manager import SandboxManager
 
 
 class Cortex:
@@ -36,7 +40,7 @@ class Cortex:
         result = await cortex.execute("Build a REST API")
     """
 
-    def __init__(self, config: CortexConfig):
+    def __init__(self, config: CortexConfig) -> None:
         self.config = config
         self._model = None  # Lazy-created LLM
         self._executor_entries = {e.intent: e for e in config.executors}
@@ -73,7 +77,7 @@ class Cortex:
         return None
 
     def _get_available_intents(self) -> dict[str, str]:
-        """Build available intents dict from executors + default"""
+        """Build available intents dict from executors + default."""
         intents = {"default": "General purpose tasks"}
         for entry in self.config.executors:
             intents[entry.intent] = entry.description
@@ -82,17 +86,16 @@ class Cortex:
     async def execute(
         self,
         query: str,
-        on_event: Callable[[str, dict], None] = None
+        on_event: Callable[[str, dict], None] | None = None,
     ) -> str:
-        """
-        Execute a task with planning and execution.
+        """Execute a task with planning and execution.
 
         Args:
             query: The user's goal/task.
             on_event: Optional callback for streaming events.
-                      Signature: on_event(event_type: str, data: dict)
+                Signature: on_event(event_type: str, data: dict).
         """
-        async def emit(event_type: str, data: dict = None):
+        async def emit(event_type: str, data: dict | None = None) -> None:
             if on_event:
                 if asyncio.iscoroutinefunction(on_event):
                     await on_event(event_type, data or {})
@@ -374,7 +377,7 @@ class Cortex:
                 logger.info(
                     "  Step %d [%s] intent=%s deps=%s tools=%d files=%s | %s%s",
                     i, status, intent, deps, tool_count, files, step,
-                    f" | notes: {notes}" if notes else ""
+                    " | notes: %s" % notes if notes else ""
                 )
 
             logger.info("=== EXECUTION COMPLETE ===")
@@ -390,7 +393,7 @@ class Cortex:
     async def _aggregate_results(
         self, query: str, plan: Plan, step_outputs: dict[int, str]
     ) -> str:
-        """Aggregate step outputs into a final result using LLM"""
+        """Aggregate step outputs into a final result using LLM."""
         from google.adk.agents import LlmAgent
         from google.adk.runners import Runner
         from google.adk.sessions import InMemorySessionService

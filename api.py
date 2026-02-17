@@ -1,10 +1,14 @@
+"""Cortex FastAPI microservice."""
+
+from __future__ import annotations
+
 import asyncio
+import json
 import logging
 import os
 import uuid
 import warnings
-import json
-from typing import Dict, Any
+from typing import Any
 
 # Filter Pydantic warnings
 warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
@@ -40,17 +44,22 @@ app.add_middleware(
 
 # Store task events for SSE (history + real-time)
 # task_id -> List[dict]
-event_store: Dict[str, list] = {}
+event_store: dict[str, list] = {}
 
 class TaskRequest(BaseModel):
+    """Request body for creating a new task."""
+
     query: str
 
 class TaskResponse(BaseModel):
+    """Response body returned when a task is created."""
+
     task_id: str
     status: str
 
 @app.post("/api/tasks", response_model=TaskResponse)
 async def create_task(request: TaskRequest, background_tasks: BackgroundTasks):
+    """Create a new Cortex task and start it in the background."""
     task_id = str(uuid.uuid4())
     event_store[task_id] = []
     
@@ -61,7 +70,7 @@ async def create_task(request: TaskRequest, background_tasks: BackgroundTasks):
 
 @app.get("/api/tasks/{task_id}/events")
 async def stream_events(task_id: str, request: Request):
-    """Stream events for a specific task via SSE with history support"""
+    """Stream events for a specific task via SSE with history support."""
     if task_id not in event_store:
         return JSONResponse(status_code=404, content={"error": "Task not found"})
 
@@ -100,15 +109,16 @@ async def stream_events(task_id: str, request: Request):
                     await asyncio.sleep(0.1)
                     
         except asyncio.CancelledError:
-            logger.info(f"Client disconnected from task {task_id}")
+            logger.info("Client disconnected from task %s", task_id)
 
     return EventSourceResponse(event_generator())
 
-async def run_cortex_task(task_id: str, query: str):
-    logger.info(f"Starting task {task_id}: {query}")
+async def run_cortex_task(task_id: str, query: str) -> None:
+    """Run a Cortex task and store events for SSE streaming."""
+    logger.info("Starting task %s: %s", task_id, query)
     
     if task_id not in event_store:
-        logger.error(f"No event store found for task {task_id}")
+        logger.error("No event store found for task %s", task_id)
         return
 
     try:
@@ -128,7 +138,7 @@ async def run_cortex_task(task_id: str, query: str):
         result = await cortex.execute(query, on_event=on_event)
         
     except Exception as e:
-        logger.error(f"Task {task_id} failed: {e}")
+        logger.error("Task %s failed: %s", task_id, e)
         if task_id in event_store:
             event_store[task_id].append({
                 "event": "error",
