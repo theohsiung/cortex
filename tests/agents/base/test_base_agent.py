@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from app.agents.base.base_agent import BaseAgent, AgentResult
@@ -123,6 +125,57 @@ class TestBaseAgent:
         mock_model = Mock()
         mock_model.__str__ = Mock(return_value="some-other-model")
         assert BaseAgent.should_include_aliases(mock_model) is False
+
+
+class TestExecuteRetryOnJsonDecodeError:
+    """Tests for retry on JSONDecodeError during execute."""
+
+    def setup_method(self):
+        TaskManager._plans.clear()
+
+    @pytest.mark.asyncio
+    async def test_retries_on_json_decode_error(self):
+        """Should retry when _run_once raises JSONDecodeError and succeed."""
+        mock_agent = create_mock_agent()
+        agent = BaseAgent(agent=mock_agent)
+
+        good_result = AgentResult(events=[], output="ok", is_complete=True)
+        agent._run_once = AsyncMock(
+            side_effect=[
+                json.JSONDecodeError("bad json", "", 0),
+                good_result,
+            ]
+        )
+        agent._get_session_service = Mock(
+            return_value=AsyncMock(
+                create_session=AsyncMock(return_value=Mock(id="s1"))
+            )
+        )
+
+        result = await agent.execute("test query")
+
+        assert result.output == "ok"
+        assert agent._run_once.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_raises_after_all_retries_exhausted(self):
+        """Should raise JSONDecodeError after max_iteration retries."""
+        mock_agent = create_mock_agent()
+        agent = BaseAgent(agent=mock_agent)
+
+        agent._run_once = AsyncMock(
+            side_effect=json.JSONDecodeError("bad json", "", 0)
+        )
+        agent._get_session_service = Mock(
+            return_value=AsyncMock(
+                create_session=AsyncMock(return_value=Mock(id="s1"))
+            )
+        )
+
+        with pytest.raises(json.JSONDecodeError):
+            await agent.execute("test query", max_iteration=3)
+
+        assert agent._run_once.call_count == 3
 
 
 class TestAgentResult:

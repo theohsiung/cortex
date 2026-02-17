@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 from app.task.task_manager import TaskManager
 
@@ -91,11 +95,22 @@ class BaseAgent:
             user_id="default"
         )
 
+        last_error = None
         for i in range(max_iteration):
-            result = await self._run_once(query, session, exec_context)
+            try:
+                result = await self._run_once(query, session, exec_context)
+            except json.JSONDecodeError as e:
+                last_error = e
+                logger.warning(
+                    "LLM returned malformed JSON, retrying (%s/%s)",
+                    i + 1, max_iteration,
+                )
+                continue
             if result.is_complete:
                 return result
 
+        if last_error is not None:
+            raise last_error
         return self._handle_max_iteration()
 
     async def _run_once(
