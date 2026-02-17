@@ -21,3 +21,4 @@ config.toml
 
 # local files
 docs/
+scripts/
