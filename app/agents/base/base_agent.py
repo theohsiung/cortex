@@ -96,7 +96,7 @@ class BaseAgent:
         session_service = self._get_session_service()
         session = await session_service.create_session(app_name=self.agent.name, user_id="default")
 
-        last_error = None
+        last_error: Exception | None = None
         for i in range(max_iteration):
             try:
                 result = await self._run_once(query, session, exec_context)
@@ -108,6 +108,17 @@ class BaseAgent:
                     max_iteration,
                 )
                 continue
+            except ValueError as e:
+                if "not found" in str(e) and "Tool" in str(e):
+                    last_error = e
+                    logger.warning(
+                        "LLM hallucinated tool name, retrying (%s/%s): %s",
+                        i + 1,
+                        max_iteration,
+                        e,
+                    )
+                    continue
+                raise
             if result.is_complete:
                 return result
 

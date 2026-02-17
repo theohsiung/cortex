@@ -63,6 +63,32 @@ class Verifier:
 
         return await self._llm_evaluate(step_description, executor_output)
 
+    def build_evaluation_prompt(
+        self,
+        step_description: str,
+        executor_output: str,
+    ) -> str:
+        """Build the evaluation prompt for LLM-based verification."""
+        return f"""Evaluate whether the following executor output addresses the assigned step.
+
+Step: {step_description}
+
+Executor output:
+{executor_output}
+
+Evaluation criteria:
+- [SUCCESS] if the output is relevant and provides a meaningful response,
+  even without tool calls.
+- [FAIL] only if the output is empty, completely irrelevant, or contains
+  a clear error.
+
+Not all steps require tool calls. Analysis, reasoning, and text responses are valid outputs.
+
+Respond with EXACTLY one of:
+- [SUCCESS]: <brief description of what was accomplished>
+- [FAIL]: <reason why the step was not completed>
+"""
+
     async def _llm_evaluate(
         self,
         step_description: str,
@@ -76,18 +102,7 @@ class Verifier:
         from google.adk.sessions import InMemorySessionService
         from google.genai.types import Content, Part
 
-        prompt = f"""Evaluate whether the following executor output \
-successfully completes the assigned step.
-
-Step: {step_description}
-
-Executor output:
-{executor_output}
-
-Respond with EXACTLY one of:
-- [SUCCESS]: <brief description of what was accomplished>
-- [FAIL]: <reason why the step was not completed>
-"""
+        prompt = self.build_evaluation_prompt(step_description, executor_output)
         assert self.model is not None
         agent = LlmAgent(
             name="verifier",

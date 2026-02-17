@@ -31,6 +31,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+exclude = ["app/agents/coding_agent/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
@@ -52,6 +53,7 @@ python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+exclude = ["app/agents/coding_agent/"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

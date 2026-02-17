@@ -146,6 +146,44 @@ class TestExecuteRetryOnJsonDecodeError:
         assert agent._run_once.call_count == 2
 
     @pytest.mark.asyncio
+    async def test_retries_on_hallucinated_tool_name(self):
+        """Should retry when _run_once raises ValueError for hallucinated tool name."""
+        mock_agent = create_mock_agent()
+        agent = BaseAgent(agent=mock_agent)
+
+        good_result = AgentResult(events=[], output="ok", is_complete=True)
+        agent._run_once = AsyncMock(
+            side_effect=[
+                ValueError("Tool 'create_planjson<|channel|>commentary' not found."),
+                good_result,
+            ]
+        )
+        agent._get_session_service = Mock(
+            return_value=AsyncMock(create_session=AsyncMock(return_value=Mock(id="s1")))
+        )
+
+        result = await agent.execute("test query")
+
+        assert result.output == "ok"
+        assert agent._run_once.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_does_not_retry_unrelated_value_error(self):
+        """Should NOT retry ValueError that is not about tool names."""
+        mock_agent = create_mock_agent()
+        agent = BaseAgent(agent=mock_agent)
+
+        agent._run_once = AsyncMock(side_effect=ValueError("some other error"))
+        agent._get_session_service = Mock(
+            return_value=AsyncMock(create_session=AsyncMock(return_value=Mock(id="s1")))
+        )
+
+        with pytest.raises(ValueError, match="some other error"):
+            await agent.execute("test query", max_iteration=3)
+
+        assert agent._run_once.call_count == 1
+
+    @pytest.mark.asyncio
     async def test_raises_after_all_retries_exhausted(self):
         """Should raise JSONDecodeError after max_iteration retries."""
         mock_agent = create_mock_agent()

@@ -338,3 +338,19 @@ class TestVerifierLLMBased:
             step_description="Do something", executor_output="Done"
         )
         assert result.passed is True
+
+
+class TestVerifierEvaluationPrompt:
+    """Tests for the LLM evaluation prompt content."""
+
+    def test_prompt_instructs_lenient_success_criteria(self):
+        """Prompt should tell LLM to SUCCESS when output is relevant, even without tools."""
+        verifier = Verifier()
+        prompt = verifier.build_evaluation_prompt("Analyze input", "The input looks correct")
+        assert "relevant" in prompt.lower() or "addresses" in prompt.lower()
+
+    def test_prompt_instructs_fail_only_on_clear_issues(self):
+        """Prompt should tell LLM to only FAIL on empty, irrelevant, or erroneous output."""
+        verifier = Verifier()
+        prompt = verifier.build_evaluation_prompt("Analyze input", "The input looks correct")
+        assert "empty" in prompt.lower() or "irrelevant" in prompt.lower()
