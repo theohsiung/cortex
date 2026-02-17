@@ -22,7 +22,7 @@ class PlanToolkit:
     CREATE_PLAN_SCHEMA = FunctionDeclaration(
         name="create_plan",
         description="Create a new execution plan. Break down the task into executable steps.",
-        parameters={
+        parameters={  # type: ignore[arg-type]
             "type": "object",
             "properties": {
                 "title": {
@@ -50,7 +50,7 @@ class PlanToolkit:
     UPDATE_PLAN_SCHEMA = FunctionDeclaration(
         name="update_plan",
         description="Update the existing plan's title, steps, or dependencies",
-        parameters={
+        parameters={  # type: ignore[arg-type]
             "type": "object",
             "properties": {
                 "title": {"type": "string", "description": "New title (optional)"},

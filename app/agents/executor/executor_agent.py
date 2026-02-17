@@ -87,7 +87,7 @@ class ExecutorAgent(BaseAgent):
     async def execute_step(self, step_index: int, context: str = "") -> str:
         """Execute a specific step."""
         exec_context = ExecutionContext(step_index=step_index)
-
+        assert self.plan is not None
         step_desc = self.plan.steps[step_index]
         query = f"Execute step {step_index}: {step_desc}"
         if context:

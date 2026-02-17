@@ -94,6 +94,7 @@ class ReplannerAgent(BaseAgent):
         Returns:
             Complete prompt for the replanner
         """
+        assert self.plan is not None
         # Get completed steps
         completed_indices = [
             i

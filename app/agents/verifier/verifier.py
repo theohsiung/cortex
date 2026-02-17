@@ -88,6 +88,7 @@ Respond with EXACTLY one of:
 - [SUCCESS]: <brief description of what was accomplished>
 - [FAIL]: <reason why the step was not completed>
 """
+        assert self.model is not None
         agent = LlmAgent(
             name="verifier",
             model=self.model,
@@ -109,7 +110,7 @@ Respond with EXACTLY one of:
             user_id="verifier", session_id=session.id, new_message=content
         ):
             if hasattr(event, "content") and event.content:
-                if hasattr(event.content, "parts"):
+                if hasattr(event.content, "parts") and event.content.parts:
                     for part in event.content.parts:
                         if hasattr(part, "text") and part.text:
                             final_output = part.text

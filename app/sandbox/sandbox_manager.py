@@ -48,8 +48,8 @@ class SandboxManager:
         self.enable_shell = config.enable_shell
         self.mcp_servers = mcp_servers or []
         self.docker_image = config.docker_image
-        self._container = None
-        self._client = None
+        self._container: Any = None
+        self._client: docker.DockerClient | None = None
         self._filesystem_toolset: McpToolset | None = None
         self._filesystem_toolset_readonly: McpToolset | None = None
         self._shell_toolset: McpToolset | None = None
@@ -73,8 +73,9 @@ class SandboxManager:
             return
 
         try:
-            self._client = docker.from_env()
-            self._client.ping()
+            client = docker.from_env()
+            client.ping()
+            self._client = client
         except Exception as e:
             raise RuntimeError(
                 "Docker is not available. Please ensure Docker is"
@@ -85,6 +86,7 @@ class SandboxManager:
         await self._ensure_image()
 
         # Create container with user_workspace mounted
+        assert self._client is not None
         self._container = self._client.containers.run(
             self.docker_image,
             command="tail -f /dev/null",  # Keep container running
@@ -96,6 +98,7 @@ class SandboxManager:
 
     async def _ensure_image(self) -> None:
         """Ensure the sandbox Docker image exists, build if necessary."""
+        assert self._client is not None
         try:
             self._client.images.get(self.docker_image)
         except docker.errors.ImageNotFound:
@@ -233,4 +236,3 @@ class SandboxManager:
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         """Async context manager exit."""
         await self.stop()
-        return False

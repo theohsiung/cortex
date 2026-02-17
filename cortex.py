@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Callable, Union
+from typing import Any, Callable, Union
 
 from app.agents.executor.executor_agent import ExecutorAgent
 from app.agents.planner.planner_agent import PlannerAgent
@@ -50,10 +50,9 @@ class Cortex:
         sandbox_needed = (
             config.sandbox.enable_filesystem or config.sandbox.enable_shell or config.mcp_servers
         )
+        self.sandbox: SandboxManager | None = None
         if sandbox_needed:
             self.sandbox = SandboxManager(config.sandbox, mcp_servers=config.mcp_servers)
-        else:
-            self.sandbox = None
 
     @property
     def model(self):
@@ -85,7 +84,7 @@ class Cortex:
     async def execute(
         self,
         query: str,
-        on_event: Callable[[str, dict], None] | None = None,
+        on_event: Callable[[str, dict[str, Any]], Any] | None = None,
     ) -> str:
         """Execute a task with planning and execution.
 
@@ -182,7 +181,7 @@ class Cortex:
                     plan.mark_step(step_idx, step_status="in_progress")
                     await emit("step_status", {"step_idx": step_idx, "status": "in_progress"})
 
-                    last_error = None
+                    last_error: Exception = Exception("step did not execute")
                     for attempt in range(max_retries + 1):
                         try:
                             # Dispatch to correct executor based on step intent
@@ -485,7 +484,7 @@ Do not include meta-commentary about the steps - just provide the final delivera
             user_id="aggregator", session_id=session.id, new_message=content
         ):
             if hasattr(event, "content") and event.content:
-                if hasattr(event.content, "parts"):
+                if hasattr(event.content, "parts") and event.content.parts:
                     for part in event.content.parts:
                         if hasattr(part, "text") and part.text:
                             final_output = part.text

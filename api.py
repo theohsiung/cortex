@@ -122,7 +122,7 @@ async def run_cortex_task(task_id: str, query: str) -> None:
 
     try:
         # Initialize Cortex
-        config = CortexConfig()
+        config = CortexConfig()  # type: ignore[call-arg]
         cortex = Cortex(config)
 
         # Define event handler

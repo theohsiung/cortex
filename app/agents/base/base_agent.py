@@ -76,7 +76,7 @@ class BaseAgent:
         self._tool_events: list[dict] = []
 
         # Session service (lazy init)
-        self._session_service = None
+        self._session_service: InMemorySessionService | None = None
 
     def _get_session_service(self) -> InMemorySessionService:
         """Lazy initialization of session service."""
@@ -140,7 +140,7 @@ class BaseAgent:
             events.append(event)
             self._process_event(event, exec_context)
 
-            if event.is_final_response():
+            if event.is_final_response() and event.content and event.content.parts:
                 for part in event.content.parts:
                     if hasattr(part, "text") and part.text:
                         final_output += part.text
@@ -151,7 +151,9 @@ class BaseAgent:
             if event.content and event.content.parts:
                 for part in event.content.parts:
                     if hasattr(part, "function_call") and part.function_call:
-                        is_complete = self._has_tool_response(events, part.function_call.name)
+                        name = part.function_call.name
+                        if name is not None:
+                            is_complete = self._has_tool_response(events, name)
 
         return AgentResult(events=events, output=final_output, is_complete=is_complete)
 
@@ -237,7 +239,7 @@ class BaseAgent:
                 matching_id = call_id
                 break
 
-        if matching_call is None:
+        if matching_call is None or matching_id is None:
             return
 
         # Update pending call to success in plan

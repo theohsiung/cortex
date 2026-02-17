@@ -83,7 +83,8 @@ class ExecutorEntry(BaseModel):
     def get_factory(self) -> Callable[[], Any]:
         """Import the factory module and return the factory callable (without calling it)."""
         module = importlib.import_module(self.factory_module)
-        return getattr(module, self.factory_function)
+        factory: Callable[[], Any] = getattr(module, self.factory_function)
+        return factory
 
     def create_executor(self) -> Any:
         """Import the factory module and call the factory function."""
