@@ -113,17 +113,13 @@ def build_replan_prompt(
     Returns:
         Complete prompt for the replanner
     """
-    steps_section = "\n".join(
-        f"- Step {idx}: {desc}" for idx, desc in steps_to_replan
-    )
+    steps_section = "\n".join(f"- Step {idx}: {desc}" for idx, desc in steps_to_replan)
     tools_section = "\n".join(f"- {tool}" for tool in available_tools)
 
     # Build available intents section
     intents_section = ""
     if available_intents and len(available_intents) > 1:
-        intents_lines = "\n".join(
-            f"- `{name}`: {desc}" for name, desc in available_intents.items()
-        )
+        intents_lines = "\n".join(f"- `{name}`: {desc}" for name, desc in available_intents.items())
         intents_section = f"""
 ---
 

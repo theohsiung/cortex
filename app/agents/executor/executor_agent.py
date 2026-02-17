@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any, Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 from app.agents.base.base_agent import BaseAgent, ExecutionContext
 from app.agents.executor.prompts import EXECUTOR_SYSTEM_PROMPT
 from app.task.task_manager import TaskManager
 
 if TYPE_CHECKING:
-    from google.adk.agents import LlmAgent
+    pass
 
 
 class ExecutorAgent(BaseAgent):

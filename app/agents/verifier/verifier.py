@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+
 from app.task.plan import Plan
 
 
 @dataclass
 class VerifyResult:
     """Result from verification."""
+
     passed: bool
     notes: str = ""
 
@@ -35,7 +37,9 @@ class Verifier:
         tool_history = plan.step_tool_history.get(step_idx, [])
         for call in tool_history:
             if call.get("status") == "pending":
-                return VerifyResult(passed=False, notes="Pending tool calls detected (hallucination)")
+                return VerifyResult(
+                    passed=False, notes="Pending tool calls detected (hallucination)"
+                )
 
         return VerifyResult(passed=True, notes=notes if notes else "")
 
@@ -72,7 +76,8 @@ class Verifier:
         from google.adk.sessions import InMemorySessionService
         from google.genai.types import Content, Part
 
-        prompt = f"""Evaluate whether the following executor output successfully completes the assigned step.
+        prompt = f"""Evaluate whether the following executor output \
+successfully completes the assigned step.
 
 Step: {step_description}
 
@@ -90,9 +95,7 @@ Respond with EXACTLY one of:
         )
 
         session_service = InMemorySessionService()
-        session = await session_service.create_session(
-            app_name="verifier", user_id="verifier"
-        )
+        session = await session_service.create_session(app_name="verifier", user_id="verifier")
 
         runner = Runner(
             agent=agent,

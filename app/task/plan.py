@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 # Constants for tool history
 RESULT_MAX_LENGTH = 200
 
@@ -20,10 +19,7 @@ class Plan:
         """
         if not deps:
             return {}
-        return {
-            int(k): [int(v) for v in vals]
-            for k, vals in deps.items()
-        }
+        return {int(k): [int(v) for v in vals] for k, vals in deps.items()}
 
     def __init__(
         self,
@@ -121,12 +117,7 @@ class Plan:
             self.step_notes[step] = step_notes
 
     def add_tool_call(
-        self,
-        step_index: int,
-        tool: str,
-        args: dict,
-        result: Any,
-        timestamp: str
+        self, step_index: int, tool: str, args: dict, result: Any, timestamp: str
     ) -> None:
         """Record a tool call for a step."""
         if step_index < 0 or step_index >= len(self.steps):
@@ -140,20 +131,11 @@ class Plan:
         if len(result_str) > RESULT_MAX_LENGTH:
             result_str = result_str[:RESULT_MAX_LENGTH] + "...[truncated]"
 
-        self.step_tool_history[step_index].append({
-            "tool": tool,
-            "args": args,
-            "result": result_str,
-            "timestamp": timestamp
-        })
+        self.step_tool_history[step_index].append(
+            {"tool": tool, "args": args, "result": result_str, "timestamp": timestamp}
+        )
 
-    def add_tool_call_pending(
-        self,
-        step_index: int,
-        tool: str,
-        args: dict,
-        call_time: str
-    ) -> None:
+    def add_tool_call_pending(self, step_index: int, tool: str, args: dict, call_time: str) -> None:
         """Record a pending tool call for a step."""
         if step_index < 0 or step_index >= len(self.steps):
             raise ValueError(f"Invalid step_index: {step_index}")
@@ -161,19 +143,12 @@ class Plan:
         if step_index not in self.step_tool_history:
             self.step_tool_history[step_index] = []
 
-        self.step_tool_history[step_index].append({
-            "tool": tool,
-            "args": args,
-            "status": "pending",
-            "call_time": call_time
-        })
+        self.step_tool_history[step_index].append(
+            {"tool": tool, "args": args, "status": "pending", "call_time": call_time}
+        )
 
     def update_tool_result(
-        self,
-        step_index: int,
-        tool: str,
-        result: Any,
-        response_time: str
+        self, step_index: int, tool: str, result: Any, response_time: str
     ) -> None:
         """Update a pending tool call to success with result (FIFO matching)."""
         if step_index not in self.step_tool_history:
@@ -234,10 +209,7 @@ class Plan:
 
             # Check if all dependencies are completed
             deps = self.dependencies.get(idx, [])
-            all_deps_done = all(
-                self.step_statuses[self.steps[dep]] == "completed"
-                for dep in deps
-            )
+            all_deps_done = all(self.step_statuses[self.steps[dep]] == "completed" for dep in deps)
 
             if all_deps_done:
                 ready.append(idx)
@@ -278,7 +250,7 @@ class Plan:
             "completed": statuses.count("completed"),
             "in_progress": statuses.count("in_progress"),
             "blocked": statuses.count("blocked"),
-            "not_started": statuses.count("not_started")
+            "not_started": statuses.count("not_started"),
         }
 
     def format_dag(self) -> str:
@@ -312,7 +284,7 @@ class Plan:
             "not_started": "[ ]",
             "in_progress": "[→]",
             "completed": "[✓]",
-            "blocked": "[!]"
+            "blocked": "[!]",
         }
 
         for idx, step in enumerate(self.steps):
@@ -505,7 +477,6 @@ class Plan:
                     tool = call["tool"]
                     args = call.get("args", {})
                     result = call.get("result", "")
-                    status = call.get("status", "unknown")
 
                     # Format args as key=value pairs
                     args_str = ", ".join(f'{k}="{v}"' for k, v in args.items())

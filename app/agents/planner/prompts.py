@@ -78,7 +78,7 @@ def build_intent_prompt_section(intents: dict[str, str]) -> str:
     lines = [
         "## Step Intent Types",
         "",
-        "For each step, you MUST assign an \"intent\" field to indicate which executor should handle it.",
+        'For each step, you MUST assign an "intent" field to indicate which executor should handle it.',
         "Use the `intents` parameter in create_plan to specify intent for each step.",
         "",
         "Available intent types:",

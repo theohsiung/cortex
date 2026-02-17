@@ -12,16 +12,19 @@ from app.agents.base.base_agent import BaseAgent
 from app.agents.replanner.prompts import REPLANNER_SYSTEM_PROMPT, build_replan_prompt
 from app.task.task_manager import TaskManager
 
+
 @functools.lru_cache(maxsize=1)
 def _get_llm_agent():
     """Lazy import LlmAgent to avoid circular imports."""
     from google.adk.agents import LlmAgent
+
     return LlmAgent
 
 
 @dataclass
 class ReplanResult:
     """Result from replanning operation."""
+
     action: str  # "redesign" | "give_up"
     new_steps: list[str]
     new_dependencies: dict[int, list[int]]
@@ -80,11 +83,7 @@ class ReplannerAgent(BaseAgent):
 
         super().__init__(agent=agent, tool_functions={}, plan_id=plan_id)
 
-    def _build_replan_prompt(
-        self,
-        steps_to_replan: list[int],
-        available_tools: list[str]
-    ) -> str:
+    def _build_replan_prompt(self, steps_to_replan: list[int], available_tools: list[str]) -> str:
         """
         Build the prompt for replanning.
 
@@ -97,7 +96,8 @@ class ReplannerAgent(BaseAgent):
         """
         # Get completed steps
         completed_indices = [
-            i for i, step in enumerate(self.plan.steps)
+            i
+            for i, step in enumerate(self.plan.steps)
             if self.plan.step_statuses[step] == "completed"
         ]
 
@@ -106,9 +106,7 @@ class ReplannerAgent(BaseAgent):
 
         # Get step descriptions for steps to replan
         steps_with_desc = [
-            (idx, self.plan.steps[idx])
-            for idx in steps_to_replan
-            if idx < len(self.plan.steps)
+            (idx, self.plan.steps[idx]) for idx in steps_to_replan if idx < len(self.plan.steps)
         ]
 
         return build_replan_prompt(
@@ -129,7 +127,7 @@ class ReplannerAgent(BaseAgent):
             ReplanResult extracted from response
         """
         # Try to extract JSON from code block
-        json_match = re.search(r'```json\s*(.*?)\s*```', response, re.DOTALL)
+        json_match = re.search(r"```json\s*(.*?)\s*```", response, re.DOTALL)
         if json_match:
             json_str = json_match.group(1)
         else:
@@ -148,9 +146,7 @@ class ReplannerAgent(BaseAgent):
             raw_deps = data.get("new_dependencies", {})
 
             # Convert string keys to int (JSON doesn't support int keys)
-            new_dependencies = {
-                int(k): v for k, v in raw_deps.items()
-            }
+            new_dependencies = {int(k): v for k, v in raw_deps.items()}
 
             raw_intents = data.get("new_intents", {})
             new_intents = {int(k): v for k, v in raw_intents.items()} if raw_intents else {}
@@ -159,15 +155,13 @@ class ReplannerAgent(BaseAgent):
                 action=action,
                 new_steps=new_steps,
                 new_dependencies=new_dependencies,
-                new_intents=new_intents
+                new_intents=new_intents,
             )
         except (json.JSONDecodeError, ValueError, TypeError):
             return ReplanResult(action="give_up", new_steps=[], new_dependencies={})
 
     async def replan_subgraph(
-        self,
-        steps_to_replan: list[int],
-        available_tools: list[str]
+        self, steps_to_replan: list[int], available_tools: list[str]
     ) -> ReplanResult:
         """
         Redesign the specified steps.

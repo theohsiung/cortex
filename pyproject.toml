@@ -21,9 +21,36 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "mypy>=1.19.1",
     "pytest>=9.0.2",
     "pytest-asyncio>=0.24.0",
+    "ruff>=0.15.1",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+"api.py" = ["E402"]
+"example.py" = ["E402"]
+"example_compare.py" = ["E402"]
+"app/agents/*/prompts.py" = ["E501"]
+"app/agents/replanner/prompts.py" = ["E501"]
+"app/tools/plan_toolkit.py" = ["E501"]
+"cortex.py" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

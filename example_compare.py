@@ -16,13 +16,14 @@ load_dotenv()
 
 warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
 
-from google.adk.models import LiteLlm
 from google.adk.agents import LlmAgent
+from google.adk.models import LiteLlm
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai.types import Content, Part
-from cortex import Cortex
+
 from app.config import CortexConfig
+from cortex import Cortex
 
 
 async def single_llm_call(model, query: str) -> tuple[str, float]:
@@ -42,9 +43,7 @@ async def single_llm_call(model, query: str) -> tuple[str, float]:
     content = Content(parts=[Part(text=query)])
 
     result = ""
-    async for event in runner.run_async(
-        user_id="user", session_id=session.id, new_message=content
-    ):
+    async for event in runner.run_async(user_id="user", session_id=session.id, new_message=content):
         if hasattr(event, "content") and event.content:
             if hasattr(event.content, "parts"):
                 for part in event.content.parts:

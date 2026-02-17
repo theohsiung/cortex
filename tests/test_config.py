@@ -1,4 +1,5 @@
 """Tests for app.config Pydantic models."""
+
 from __future__ import annotations
 
 import sys
@@ -9,16 +10,21 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from app.config import (
-    MCPStdio, MCPSse, MCPServer,
-    ModelConfig, SandboxConfig,
-    ExecutorEntry, TuningConfig,
-    CortexConfig, get_config_file_path,
+    CortexConfig,
+    ExecutorEntry,
+    MCPServer,
+    MCPSse,
+    MCPStdio,
+    ModelConfig,
+    SandboxConfig,
+    TuningConfig,
+    get_config_file_path,
 )
-
 
 # ---------------------------------------------------------------------------
 # Task 2 – MCP Discriminated Union Models
 # ---------------------------------------------------------------------------
+
 
 class TestMCPStdio:
     """MCPStdio model tests."""
@@ -80,9 +86,7 @@ class TestMCPServerDiscriminator:
         assert isinstance(obj, MCPStdio)
 
     def test_routes_to_sse(self):
-        obj = self.ta.validate_python(
-            {"transport": "sse", "url": "http://localhost:8080/sse"}
-        )
+        obj = self.ta.validate_python({"transport": "sse", "url": "http://localhost:8080/sse"})
         assert isinstance(obj, MCPSse)
 
     def test_rejects_unknown_transport(self):
@@ -91,10 +95,12 @@ class TestMCPServerDiscriminator:
 
     def test_list_of_mixed_servers(self):
         ta_list = TypeAdapter(list[MCPServer])
-        servers = ta_list.validate_python([
-            {"transport": "stdio", "command": "node"},
-            {"transport": "sse", "url": "http://localhost:8080/sse"},
-        ])
+        servers = ta_list.validate_python(
+            [
+                {"transport": "stdio", "command": "node"},
+                {"transport": "sse", "url": "http://localhost:8080/sse"},
+            ]
+        )
         assert isinstance(servers[0], MCPStdio)
         assert isinstance(servers[1], MCPSse)
 
@@ -102,6 +108,7 @@ class TestMCPServerDiscriminator:
 # ---------------------------------------------------------------------------
 # Task 3 – ModelConfig and SandboxConfig
 # ---------------------------------------------------------------------------
+
 
 class TestModelConfig:
     """ModelConfig model tests."""
@@ -173,6 +180,7 @@ class TestSandboxConfig:
 # ---------------------------------------------------------------------------
 # Task 4 – ExecutorEntry and TuningConfig
 # ---------------------------------------------------------------------------
+
 
 class TestExecutorEntry:
     """ExecutorEntry model tests."""
@@ -256,6 +264,7 @@ class TestTuningConfig:
 # Task 5 – ExecutorEntry.create_executor() and get_factory()
 # ---------------------------------------------------------------------------
 
+
 class TestExecutorEntryCreateExecutor:
     """Tests for dynamic import via create_executor / get_factory."""
 
@@ -316,13 +325,15 @@ class TestExecutorEntryCreateExecutor:
 # Task 6 – CortexConfig with TOML settings source
 # ---------------------------------------------------------------------------
 
+
 class TestTomlFileSettingsSource:
     """Tests for loading CortexConfig from TOML files."""
 
     def test_load_from_toml_file(self, tmp_path, monkeypatch):
         """TOML with [model] and [sandbox] sections loads correctly."""
         toml_file = tmp_path / "config.toml"
-        toml_file.write_text(textwrap.dedent("""\
+        toml_file.write_text(
+            textwrap.dedent("""\
             [model]
             name = "gpt-4"
             api_base = "https://api.openai.com/v1"
@@ -331,7 +342,8 @@ class TestTomlFileSettingsSource:
             [sandbox]
             enable_filesystem = true
             docker_image = "my-sandbox:v3"
-        """))
+        """)
+        )
         monkeypatch.setattr("app.config.get_config_file_path", lambda: toml_file)
 
         cfg = CortexConfig()
@@ -345,7 +357,8 @@ class TestTomlFileSettingsSource:
     def test_load_mcp_servers_from_toml(self, tmp_path, monkeypatch):
         """TOML with [[mcp_servers]] entries (both stdio and sse) loads via discriminated union."""
         toml_file = tmp_path / "config.toml"
-        toml_file.write_text(textwrap.dedent("""\
+        toml_file.write_text(
+            textwrap.dedent("""\
             [model]
             name = "gpt-4"
             api_base = "https://api.openai.com/v1"
@@ -359,7 +372,8 @@ class TestTomlFileSettingsSource:
             transport = "sse"
             url = "http://localhost:8080/sse"
             headers = {Authorization = "Bearer tok"}
-        """))
+        """)
+        )
         monkeypatch.setattr("app.config.get_config_file_path", lambda: toml_file)
 
         cfg = CortexConfig()
@@ -375,7 +389,8 @@ class TestTomlFileSettingsSource:
     def test_load_executors_from_toml(self, tmp_path, monkeypatch):
         """TOML with [[executors]] entries loads correctly."""
         toml_file = tmp_path / "config.toml"
-        toml_file.write_text(textwrap.dedent("""\
+        toml_file.write_text(
+            textwrap.dedent("""\
             [model]
             name = "gpt-4"
             api_base = "https://api.openai.com/v1"
@@ -391,7 +406,8 @@ class TestTomlFileSettingsSource:
             description = "Search agent"
             factory_module = "app.agents.search_agent"
             factory_function = "build_search"
-        """))
+        """)
+        )
         monkeypatch.setattr("app.config.get_config_file_path", lambda: toml_file)
 
         cfg = CortexConfig()
@@ -405,7 +421,8 @@ class TestTomlFileSettingsSource:
     def test_load_tuning_from_toml(self, tmp_path, monkeypatch):
         """TOML with [tuning] section loads correctly."""
         toml_file = tmp_path / "config.toml"
-        toml_file.write_text(textwrap.dedent("""\
+        toml_file.write_text(
+            textwrap.dedent("""\
             [model]
             name = "gpt-4"
             api_base = "https://api.openai.com/v1"
@@ -414,7 +431,8 @@ class TestTomlFileSettingsSource:
             max_concurrent_steps = 8
             max_retries = 5
             max_replan_attempts = 4
-        """))
+        """)
+        )
         monkeypatch.setattr("app.config.get_config_file_path", lambda: toml_file)
 
         cfg = CortexConfig()
@@ -439,12 +457,14 @@ class TestCortexConfigPriority:
     def test_init_overrides_toml(self, tmp_path, monkeypatch):
         """Constructor arguments override TOML values."""
         toml_file = tmp_path / "config.toml"
-        toml_file.write_text(textwrap.dedent("""\
+        toml_file.write_text(
+            textwrap.dedent("""\
             [model]
             name = "toml-model"
             api_base = "https://toml.example.com"
             temperature = 0.5
-        """))
+        """)
+        )
         monkeypatch.setattr("app.config.get_config_file_path", lambda: toml_file)
 
         cfg = CortexConfig(

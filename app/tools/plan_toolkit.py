@@ -99,7 +99,9 @@ class PlanToolkit:
             )
 
         normalized_intents = self._normalize_intents(intents) if intents else None
-        self.plan.update(title=title, steps=steps, dependencies=dependencies, step_intents=normalized_intents)
+        self.plan.update(
+            title=title, steps=steps, dependencies=dependencies, step_intents=normalized_intents
+        )
         result = f"Plan created:\n{self.plan.format()}"
         if fallback_used:
             result += "\n\nNote: Dependencies were auto-generated as sequential. Consider providing explicit dependencies for parallel execution."
@@ -114,7 +116,9 @@ class PlanToolkit:
     ) -> str:
         """Update existing plan."""
         normalized_intents = self._normalize_intents(intents) if intents else None
-        self.plan.update(title=title, steps=steps, dependencies=dependencies, step_intents=normalized_intents)
+        self.plan.update(
+            title=title, steps=steps, dependencies=dependencies, step_intents=normalized_intents
+        )
         return f"Plan updated:\n{self.plan.format()}"
 
     def get_tool_declarations(self) -> list[FunctionDeclaration]:
@@ -142,8 +146,10 @@ class PlanToolkit:
 
     def _create_aliased_tool(self, func, alias_name: str):
         """Create a wrapper function with a custom __name__ for ADK registration."""
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             return func(*args, **kwargs)
+
         wrapper.__name__ = alias_name
         return wrapper

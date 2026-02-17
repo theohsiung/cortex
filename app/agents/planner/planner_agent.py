@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 from app.agents.base.base_agent import BaseAgent
 from app.agents.planner.prompts import PLANNER_SYSTEM_PROMPT, build_intent_prompt_section
@@ -10,7 +10,7 @@ from app.task.task_manager import TaskManager
 from app.tools.plan_toolkit import PlanToolkit
 
 if TYPE_CHECKING:
-    from google.adk.agents import LlmAgent
+    pass
 
 
 class PlannerAgent(BaseAgent):
@@ -87,9 +87,7 @@ class PlannerAgent(BaseAgent):
             "create_plan": toolkit.create_plan,
             "update_plan": toolkit.update_plan,
         }
-        super().__init__(
-            agent=agent, tool_functions=tool_functions, plan_id=plan_id
-        )
+        super().__init__(agent=agent, tool_functions=tool_functions, plan_id=plan_id)
 
     async def create_plan(self, task: str) -> str:
         """Create a plan for the given task."""

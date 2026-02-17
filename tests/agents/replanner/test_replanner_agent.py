@@ -1,12 +1,12 @@
 """Tests for ReplannerAgent - subgraph redesign after verification failure"""
 
-import pytest
-from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from app.agents.replanner.replanner_agent import ReplannerAgent, ReplanResult
 from app.task.plan import Plan
 from app.task.task_manager import TaskManager
-from app.agents.replanner.replanner_agent import ReplannerAgent, ReplanResult
 
 
 class TestReplanResult:
@@ -15,9 +15,7 @@ class TestReplanResult:
     def test_replan_result_redesign(self):
         """Should create ReplanResult with redesign action"""
         result = ReplanResult(
-            action="redesign",
-            new_steps=["Step A", "Step B"],
-            new_dependencies={1: [0]}
+            action="redesign", new_steps=["Step A", "Step B"], new_dependencies={1: [0]}
         )
 
         assert result.action == "redesign"
@@ -26,11 +24,7 @@ class TestReplanResult:
 
     def test_replan_result_give_up(self):
         """Should create ReplanResult with give_up action"""
-        result = ReplanResult(
-            action="give_up",
-            new_steps=[],
-            new_dependencies={}
-        )
+        result = ReplanResult(action="give_up", new_steps=[], new_dependencies={})
 
         assert result.action == "give_up"
         assert result.new_steps == []
@@ -90,10 +84,7 @@ class TestReplannerAgentBuildPrompt:
 
     def test_build_prompt_includes_completed_steps(self):
         """Should include completed steps tool history"""
-        plan = Plan(
-            steps=["S0", "S1", "S2"],
-            dependencies={1: [0], 2: [1]}
-        )
+        plan = Plan(steps=["S0", "S1", "S2"], dependencies={1: [0], 2: [1]})
         plan.mark_step(0, step_status="completed")
         plan.add_tool_call(0, "read_file", {"path": "x.py"}, "content", "ts")
         TaskManager.set_plan("test_plan", plan)
@@ -102,8 +93,7 @@ class TestReplannerAgentBuildPrompt:
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
 
         prompt = agent._build_replan_prompt(
-            steps_to_replan=[1, 2],
-            available_tools=["tool_a", "tool_b"]
+            steps_to_replan=[1, 2], available_tools=["tool_a", "tool_b"]
         )
 
         assert "Step 0" in prompt
@@ -120,10 +110,7 @@ class TestReplannerAgentBuildPrompt:
         with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
 
-        prompt = agent._build_replan_prompt(
-            steps_to_replan=[1, 2],
-            available_tools=["tool_a"]
-        )
+        prompt = agent._build_replan_prompt(steps_to_replan=[1, 2], available_tools=["tool_a"])
 
         assert "S1" in prompt
         assert "S2" in prompt
@@ -137,8 +124,7 @@ class TestReplannerAgentBuildPrompt:
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
 
         prompt = agent._build_replan_prompt(
-            steps_to_replan=[1],
-            available_tools=["write_file", "run_command", "read_file"]
+            steps_to_replan=[1], available_tools=["write_file", "run_command", "read_file"]
         )
 
         assert "write_file" in prompt
@@ -247,10 +233,7 @@ class TestReplannerAgentReplanSubgraph:
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
             agent.execute = AsyncMock(return_value=mock_result)
 
-        result = await agent.replan_subgraph(
-            steps_to_replan=[1, 2],
-            available_tools=["tool_a"]
-        )
+        result = await agent.replan_subgraph(steps_to_replan=[1, 2], available_tools=["tool_a"])
 
         agent.execute.assert_called_once()
         assert result.action == "redesign"
@@ -276,10 +259,7 @@ class TestReplannerAgentReplanSubgraph:
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
             agent.execute = AsyncMock(return_value=mock_result)
 
-        result = await agent.replan_subgraph(
-            steps_to_replan=[1],
-            available_tools=[]
-        )
+        result = await agent.replan_subgraph(steps_to_replan=[1], available_tools=[])
 
         assert isinstance(result, ReplanResult)
         assert result.new_steps == ["Step X", "Step Y"]
@@ -295,18 +275,14 @@ class TestReplannerIntents:
             action="redesign",
             new_steps=["Gen code", "Review code"],
             new_dependencies={1: [0]},
-            new_intents={0: "generate", 1: "review"}
+            new_intents={0: "generate", 1: "review"},
         )
         assert result.new_intents[0] == "generate"
         assert result.new_intents[1] == "review"
 
     def test_replan_result_default_intents(self):
         """ReplanResult should default intents to empty dict"""
-        result = ReplanResult(
-            action="redesign",
-            new_steps=["Step A"],
-            new_dependencies={}
-        )
+        result = ReplanResult(action="redesign", new_steps=["Step A"], new_dependencies={})
         assert result.new_intents == {}
 
     def test_parse_response_extracts_intents(self):
@@ -317,14 +293,14 @@ class TestReplannerIntents:
         with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             replanner = ReplannerAgent(plan_id="p1", model=MagicMock())
 
-        response = '''```json
+        response = """```json
         {
             "action": "redesign",
             "new_steps": ["Gen code", "Review"],
             "new_dependencies": {"1": [0]},
             "new_intents": {"0": "generate", "1": "review"}
         }
-        ```'''
+        ```"""
         result = replanner._parse_replan_response(response)
         assert result.new_intents == {0: "generate", 1: "review"}
 
@@ -336,13 +312,13 @@ class TestReplannerIntents:
         with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             replanner = ReplannerAgent(plan_id="p2", model=MagicMock())
 
-        response = '''```json
+        response = """```json
         {
             "action": "redesign",
             "new_steps": ["Step A"],
             "new_dependencies": {}
         }
-        ```'''
+        ```"""
         result = replanner._parse_replan_response(response)
         assert result.new_intents == {}
 
@@ -353,10 +329,7 @@ class TestReplannerIntents:
 
         intents = {"default": "General", "generate": "Gen code"}
         with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
-            replanner = ReplannerAgent(
-                plan_id="p3", model=MagicMock(),
-                available_intents=intents
-            )
+            replanner = ReplannerAgent(plan_id="p3", model=MagicMock(), available_intents=intents)
         assert replanner.available_intents == intents
 
     def test_available_intents_in_prompt(self):
@@ -367,15 +340,9 @@ class TestReplannerIntents:
 
         intents = {"default": "General", "generate": "Gen code", "review": "Review code"}
         with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
-            replanner = ReplannerAgent(
-                plan_id="p4", model=MagicMock(),
-                available_intents=intents
-            )
+            replanner = ReplannerAgent(plan_id="p4", model=MagicMock(), available_intents=intents)
 
-        prompt = replanner._build_replan_prompt(
-            steps_to_replan=[1],
-            available_tools=["tool_a"]
-        )
+        prompt = replanner._build_replan_prompt(steps_to_replan=[1], available_tools=["tool_a"])
 
         assert "generate" in prompt
         assert "review" in prompt

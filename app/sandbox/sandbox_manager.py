@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, TYPE_CHECKING
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import docker
 
-from app.config import SandboxConfig, MCPServer, MCPStdio, MCPSse
+from app.config import MCPServer, MCPSse, MCPStdio, SandboxConfig
 
 if TYPE_CHECKING:
     from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
@@ -77,7 +77,8 @@ class SandboxManager:
             self._client.ping()
         except Exception as e:
             raise RuntimeError(
-                f"Docker is not available. Please ensure Docker is installed and running. Error: {e}"
+                "Docker is not available. Please ensure Docker is"
+                f" installed and running. Error: {e}"
             )
 
         # Build sandbox image if not exists
@@ -88,9 +89,7 @@ class SandboxManager:
             self.docker_image,
             command="tail -f /dev/null",  # Keep container running
             detach=True,
-            volumes={
-                str(self.user_workspace): {"bind": "/workspace", "mode": "rw"}
-            },
+            volumes={str(self.user_workspace): {"bind": "/workspace", "mode": "rw"}},
             working_dir="/workspace",
             auto_remove=False,
         )
@@ -110,8 +109,8 @@ class SandboxManager:
 
     async def _init_toolsets(self) -> None:
         """Initialize MCP toolsets based on configuration."""
-        from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
         from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
+        from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
         from mcp import StdioServerParameters
 
         # Create filesystem toolset (local, using @anthropic/mcp-filesystem)
@@ -156,11 +155,11 @@ class SandboxManager:
 
     async def _init_user_toolsets(self) -> None:
         """Initialize user-provided MCP toolsets."""
-        from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
         from google.adk.tools.mcp_tool.mcp_session_manager import (
-            StdioConnectionParams,
             SseConnectionParams,
+            StdioConnectionParams,
         )
+        from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
         from mcp import StdioServerParameters
 
         for server in self.mcp_servers:
@@ -197,7 +196,9 @@ class SandboxManager:
                 self._container.remove()
             except Exception:
                 logger.debug(
-                    "Error stopping container %s", self._container.id, exc_info=True,
+                    "Error stopping container %s",
+                    self._container.id,
+                    exc_info=True,
                 )
             finally:
                 self._container = None

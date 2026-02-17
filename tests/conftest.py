@@ -24,7 +24,9 @@ mock_adk_agents.ParallelAgent = Mock
 class MockFunctionDeclaration:
     """Mock replacement for google.genai.types.FunctionDeclaration."""
 
-    def __init__(self, name: str, description: str | None = None, parameters: dict | None = None) -> None:
+    def __init__(
+        self, name: str, description: str | None = None, parameters: dict | None = None
+    ) -> None:
         self.name = name
         self.description = description
         self.parameters = parameters
@@ -33,13 +35,13 @@ class MockFunctionDeclaration:
 mock_genai_types = MagicMock()
 mock_genai_types.FunctionDeclaration = MockFunctionDeclaration
 
-sys.modules['google.adk'] = MagicMock()
-sys.modules['google.adk.agents'] = mock_adk_agents
-sys.modules['google.adk.models'] = MagicMock()
-sys.modules['google.adk.runners'] = MagicMock()
-sys.modules['google.adk.sessions'] = MagicMock()
-sys.modules['google.genai'] = MagicMock()
-sys.modules['google.genai.types'] = mock_genai_types
+sys.modules["google.adk"] = MagicMock()
+sys.modules["google.adk.agents"] = mock_adk_agents
+sys.modules["google.adk.models"] = MagicMock()
+sys.modules["google.adk.runners"] = MagicMock()
+sys.modules["google.adk.sessions"] = MagicMock()
+sys.modules["google.genai"] = MagicMock()
+sys.modules["google.genai.types"] = mock_genai_types
 
 
 @pytest.fixture(autouse=True)

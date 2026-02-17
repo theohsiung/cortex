@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -320,12 +320,13 @@ class TestSandboxManagerUserMcp:
 class TestSandboxManagerUserspace:
     def test_userspace_directory_created_on_start(self):
         """Should create userspace directory on start"""
-        from app.sandbox.sandbox_manager import SandboxManager
         import tempfile
         from pathlib import Path
 
+        from app.sandbox.sandbox_manager import SandboxManager
+
         # Use temp dir to avoid polluting real userspace
-        with patch.object(SandboxManager, 'USERSPACE_DIR', Path(tempfile.mkdtemp())):
+        with patch.object(SandboxManager, "USERSPACE_DIR", Path(tempfile.mkdtemp())):
             manager = SandboxManager(SandboxConfig(user_id="testuser"))
             asyncio.run(manager.start())
 

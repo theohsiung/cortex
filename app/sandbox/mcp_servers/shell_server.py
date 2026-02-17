@@ -74,10 +74,7 @@ async def _run_command_impl(
         )
 
         try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=timeout
-            )
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
             process.kill()
             await process.wait()
@@ -150,19 +147,13 @@ async def run_python(
     import tempfile
 
     with tempfile.NamedTemporaryFile(
-        mode="w",
-        suffix=".py",
-        dir=str(WORKSPACE_ROOT),
-        delete=False
+        mode="w", suffix=".py", dir=str(WORKSPACE_ROOT), delete=False
     ) as f:
         f.write(code)
         script_path = f.name
 
     try:
-        result = await _run_command_impl(
-            f"python {shlex.quote(script_path)}",
-            timeout=timeout
-        )
+        result = await _run_command_impl(f"python {shlex.quote(script_path)}", timeout=timeout)
         return result
     finally:
         # Clean up temp file

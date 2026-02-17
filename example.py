@@ -24,8 +24,8 @@ logging.basicConfig(
 # Filter Pydantic warnings
 warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
 
-from cortex import Cortex
 from app.config import CortexConfig
+from cortex import Cortex
 
 
 async def main() -> None:

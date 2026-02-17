@@ -1,4 +1,5 @@
 """Pydantic configuration models for cortex."""
+
 from __future__ import annotations
 
 import importlib
@@ -11,10 +12,10 @@ from pydantic import BaseModel, Field, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
-
 # ---------------------------------------------------------------------------
 # MCP Server Models (discriminated union)
 # ---------------------------------------------------------------------------
+
 
 class MCPStdio(BaseModel):
     """MCP server accessed over stdio transport."""
@@ -39,6 +40,7 @@ MCPServer = Annotated[MCPStdio | MCPSse, Field(discriminator="transport")]
 # ---------------------------------------------------------------------------
 # Model and Sandbox configuration
 # ---------------------------------------------------------------------------
+
 
 class ModelConfig(BaseModel):
     """LLM model configuration."""
@@ -67,6 +69,7 @@ class SandboxConfig(BaseModel):
 # ---------------------------------------------------------------------------
 # Executor and Tuning configuration
 # ---------------------------------------------------------------------------
+
 
 class ExecutorEntry(BaseModel):
     """Maps an intent to a concrete executor factory."""
@@ -98,6 +101,7 @@ class TuningConfig(BaseModel):
 # ---------------------------------------------------------------------------
 # Config file resolution and TOML settings source
 # ---------------------------------------------------------------------------
+
 
 def get_config_file_path() -> Path | None:
     """Resolve config file path with priority:
@@ -133,9 +137,7 @@ class TomlFileSettingsSource(PydanticBaseSettingsSource):
         except tomllib.TOMLDecodeError as e:
             raise RuntimeError(f"Invalid TOML in {file}: {e}") from e
 
-    def get_field_value(
-        self, field: FieldInfo, field_name: str
-    ) -> tuple[Any, str, bool]:
+    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
         return self.toml_data.get(field_name), field_name, False
 
     def __call__(self) -> dict[str, Any]:
@@ -145,6 +147,7 @@ class TomlFileSettingsSource(PydanticBaseSettingsSource):
 # ---------------------------------------------------------------------------
 # Top-level CortexConfig
 # ---------------------------------------------------------------------------
+
 
 class CortexConfig(BaseSettings):
     """Main Cortex configuration.
@@ -173,8 +176,7 @@ class CortexConfig(BaseSettings):
         for entry in self.executors:
             if entry.intent in seen:
                 raise ValueError(
-                    f"Duplicate executor intent: '{entry.intent}'. "
-                    "Intents must be unique."
+                    f"Duplicate executor intent: '{entry.intent}'. Intents must be unique."
                 )
             seen.add(entry.intent)
         return self

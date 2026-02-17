@@ -5,8 +5,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import types
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -51,11 +50,12 @@ class TestCortex:
 
     def test_plan_cleanup(self):
         """Should clean up plan after task"""
-        cortex = Cortex(make_config())
+        Cortex(make_config())
 
         # Simulate plan creation and cleanup
         plan_id = "test_plan"
         from app.task.plan import Plan
+
         TaskManager.set_plan(plan_id, Plan())
 
         assert TaskManager.get_plan(plan_id) is not None
@@ -78,14 +78,18 @@ class TestCortexExecutors:
         fake_mod.create = Mock()
         sys.modules["_test_exec_gen"] = fake_mod
         try:
-            cortex = Cortex(make_config(executors=[
-                ExecutorEntry(
-                    intent="generate",
-                    description="Generate code",
-                    factory_module="_test_exec_gen",
-                    factory_function="create",
-                ),
-            ]))
+            cortex = Cortex(
+                make_config(
+                    executors=[
+                        ExecutorEntry(
+                            intent="generate",
+                            description="Generate code",
+                            factory_module="_test_exec_gen",
+                            factory_function="create",
+                        ),
+                    ]
+                )
+            )
             assert "generate" in cortex._executor_entries
         finally:
             del sys.modules["_test_exec_gen"]
@@ -107,14 +111,18 @@ class TestCortexExecutors:
         fake_mod.create = factory
         sys.modules["_test_exec_reg"] = fake_mod
         try:
-            cortex = Cortex(make_config(executors=[
-                ExecutorEntry(
-                    intent="generate",
-                    description="...",
-                    factory_module="_test_exec_reg",
-                    factory_function="create",
-                ),
-            ]))
+            cortex = Cortex(
+                make_config(
+                    executors=[
+                        ExecutorEntry(
+                            intent="generate",
+                            description="...",
+                            factory_module="_test_exec_reg",
+                            factory_function="create",
+                        ),
+                    ]
+                )
+            )
             assert cortex._get_executor_factory("generate") is factory
         finally:
             del sys.modules["_test_exec_reg"]
@@ -130,10 +138,24 @@ class TestCortexExecutors:
         fake_mod.create = Mock()
         sys.modules["_test_exec_intents"] = fake_mod
         try:
-            cortex = Cortex(make_config(executors=[
-                ExecutorEntry(intent="generate", description="Gen code", factory_module="_test_exec_intents", factory_function="create"),
-                ExecutorEntry(intent="review", description="Review code", factory_module="_test_exec_intents", factory_function="create"),
-            ]))
+            cortex = Cortex(
+                make_config(
+                    executors=[
+                        ExecutorEntry(
+                            intent="generate",
+                            description="Gen code",
+                            factory_module="_test_exec_intents",
+                            factory_function="create",
+                        ),
+                        ExecutorEntry(
+                            intent="review",
+                            description="Review code",
+                            factory_module="_test_exec_intents",
+                            factory_function="create",
+                        ),
+                    ]
+                )
+            )
             intents = cortex._get_available_intents()
             assert {"generate", "review", "default"} == set(intents.keys())
             assert intents["generate"] == "Gen code"
@@ -159,33 +181,41 @@ class TestCortexSandbox:
 
     def test_init_with_filesystem_creates_sandbox(self):
         """Should create SandboxManager when filesystem enabled"""
-        cortex = Cortex(make_config(
-            sandbox=SandboxConfig(enable_filesystem=True),
-        ))
+        cortex = Cortex(
+            make_config(
+                sandbox=SandboxConfig(enable_filesystem=True),
+            )
+        )
         assert cortex.sandbox is not None
         assert cortex.sandbox.enable_filesystem is True
 
     def test_init_with_user_id(self):
         """Should pass user_id to SandboxManager"""
-        cortex = Cortex(make_config(
-            sandbox=SandboxConfig(user_id="alice", enable_filesystem=True),
-        ))
+        cortex = Cortex(
+            make_config(
+                sandbox=SandboxConfig(user_id="alice", enable_filesystem=True),
+            )
+        )
         assert cortex.sandbox.user_id == "alice"
 
     def test_init_auto_generates_user_id(self):
         """Should auto-generate user_id if not provided"""
-        cortex = Cortex(make_config(
-            sandbox=SandboxConfig(enable_filesystem=True),
-        ))
+        cortex = Cortex(
+            make_config(
+                sandbox=SandboxConfig(enable_filesystem=True),
+            )
+        )
         assert cortex.sandbox.user_id.startswith("auto-")
 
     def test_init_with_all_sandbox_options(self):
         """Should pass all options to SandboxManager"""
         mcp_servers = [MCPSse(transport="sse", url="https://example.com/mcp")]
-        cortex = Cortex(make_config(
-            sandbox=SandboxConfig(user_id="test", enable_filesystem=True, enable_shell=True),
-            mcp_servers=mcp_servers,
-        ))
+        cortex = Cortex(
+            make_config(
+                sandbox=SandboxConfig(user_id="test", enable_filesystem=True, enable_shell=True),
+                mcp_servers=mcp_servers,
+            )
+        )
         assert cortex.sandbox.enable_shell is True
         assert cortex.sandbox.mcp_servers == mcp_servers
 
@@ -197,18 +227,20 @@ class TestCortexParallelExecution:
         TaskManager._plans.clear()
 
     @pytest.mark.asyncio
-    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch.object(
+        Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result"
+    )
     @patch("cortex.Verifier")
     @patch("cortex.ExecutorAgent")
     @patch("cortex.PlannerAgent")
     @patch("cortex.Plan")
-    async def test_step_outputs_accumulated(self, mock_plan_cls, mock_planner_cls, mock_executor_cls, mock_verifier_cls, mock_aggregate):
+    async def test_step_outputs_accumulated(
+        self, mock_plan_cls, mock_planner_cls, mock_executor_cls, mock_verifier_cls, mock_aggregate
+    ):
         """step_outputs should accumulate results from completed steps"""
         # Setup plan with sequential dependencies: 0 -> 1 -> 2
         plan = Plan(
-            title="Test",
-            steps=["Step A", "Step B", "Step C"],
-            dependencies={1: [0], 2: [1]}
+            title="Test", steps=["Step A", "Step B", "Step C"], dependencies={1: [0], 2: [1]}
         )
         mock_plan_cls.return_value = plan
 
@@ -219,17 +251,21 @@ class TestCortexParallelExecution:
 
         # Mock executor to return specific outputs
         mock_executor = AsyncMock()
-        mock_executor.execute_step = AsyncMock(side_effect=[
-            "Output from step 0",
-            "Output from step 1",
-            "Output from step 2",
-        ])
+        mock_executor.execute_step = AsyncMock(
+            side_effect=[
+                "Output from step 0",
+                "Output from step 1",
+                "Output from step 2",
+            ]
+        )
         mock_executor_cls.return_value = mock_executor
 
         # Mock verifier
         mock_verifier = MagicMock()
         mock_verifier.verify_step = MagicMock(return_value=VerifyResult(passed=True, notes=""))
-        mock_verifier.evaluate_output = AsyncMock(return_value=VerifyResult(passed=True, notes="Verified"))
+        mock_verifier.evaluate_output = AsyncMock(
+            return_value=VerifyResult(passed=True, notes="Verified")
+        )
         mock_verifier_cls.return_value = mock_verifier
 
         cortex = Cortex(make_config())
@@ -239,18 +275,22 @@ class TestCortexParallelExecution:
         assert mock_executor.execute_step.call_count == 3
 
     @pytest.mark.asyncio
-    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch.object(
+        Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result"
+    )
     @patch("cortex.Verifier")
     @patch("cortex.ExecutorAgent")
     @patch("cortex.PlannerAgent")
     @patch("cortex.Plan")
-    async def test_dep_context_includes_dependency_outputs(self, mock_plan_cls, mock_planner_cls, mock_executor_cls, mock_verifier_cls, mock_aggregate):
+    async def test_dep_context_includes_dependency_outputs(
+        self, mock_plan_cls, mock_planner_cls, mock_executor_cls, mock_verifier_cls, mock_aggregate
+    ):
         """dep_context should include outputs from dependency steps"""
         # Setup plan: step 2 depends on steps 0 and 1
         plan = Plan(
             title="Test",
             steps=["Step A", "Step B", "Step C"],
-            dependencies={2: [0, 1]}  # Step 2 depends on 0 and 1
+            dependencies={2: [0, 1]},  # Step 2 depends on 0 and 1
         )
         mock_plan_cls.return_value = plan
 
@@ -262,7 +302,9 @@ class TestCortexParallelExecution:
         # Mock verifier
         mock_verifier = MagicMock()
         mock_verifier.verify_step = MagicMock(return_value=VerifyResult(passed=True, notes=""))
-        mock_verifier.evaluate_output = AsyncMock(return_value=VerifyResult(passed=True, notes="Verified"))
+        mock_verifier.evaluate_output = AsyncMock(
+            return_value=VerifyResult(passed=True, notes="Verified")
+        )
         mock_verifier_cls.return_value = mock_verifier
 
         # Track contexts passed to execute_step
@@ -287,18 +329,22 @@ class TestCortexParallelExecution:
         assert "Step 1 result: Output from step 1" in step_2_context
 
     @pytest.mark.asyncio
-    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch.object(
+        Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result"
+    )
     @patch("cortex.Verifier")
     @patch("cortex.ExecutorAgent")
     @patch("cortex.PlannerAgent")
     @patch("cortex.Plan")
-    async def test_parallel_steps_execute_together(self, mock_plan_cls, mock_planner_cls, mock_executor_cls, mock_verifier_cls, mock_aggregate):
+    async def test_parallel_steps_execute_together(
+        self, mock_plan_cls, mock_planner_cls, mock_executor_cls, mock_verifier_cls, mock_aggregate
+    ):
         """Steps with same dependencies should execute in parallel"""
         # Setup plan: steps 1 and 2 both depend only on step 0
         plan = Plan(
             title="Test",
             steps=["Step A", "Step B", "Step C", "Step D"],
-            dependencies={1: [0], 2: [0], 3: [1, 2]}
+            dependencies={1: [0], 2: [0], 3: [1, 2]},
         )
         mock_plan_cls.return_value = plan
 
@@ -309,7 +355,9 @@ class TestCortexParallelExecution:
         # Mock verifier
         mock_verifier = MagicMock()
         mock_verifier.verify_step = MagicMock(return_value=VerifyResult(passed=True, notes=""))
-        mock_verifier.evaluate_output = AsyncMock(return_value=VerifyResult(passed=True, notes="Verified"))
+        mock_verifier.evaluate_output = AsyncMock(
+            return_value=VerifyResult(passed=True, notes="Verified")
+        )
         mock_verifier_cls.return_value = mock_verifier
 
         # Track execution order
@@ -341,18 +389,20 @@ class TestCortexParallelExecution:
         assert start_1_idx < end_2_idx or start_2_idx < end_1_idx
 
     @pytest.mark.asyncio
-    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch.object(
+        Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result"
+    )
     @patch("cortex.Verifier")
     @patch("cortex.ExecutorAgent")
     @patch("cortex.PlannerAgent")
     @patch("cortex.Plan")
-    async def test_failed_step_marked_as_blocked(self, mock_plan_cls, mock_planner_cls, mock_executor_cls, mock_verifier_cls, mock_aggregate):
+    async def test_failed_step_marked_as_blocked(
+        self, mock_plan_cls, mock_planner_cls, mock_executor_cls, mock_verifier_cls, mock_aggregate
+    ):
         """Failed step should be marked as blocked, others continue"""
         # Setup plan: steps 1 and 2 are independent (both depend on 0)
         plan = Plan(
-            title="Test",
-            steps=["Step A", "Step B", "Step C"],
-            dependencies={1: [0], 2: [0]}
+            title="Test", steps=["Step A", "Step B", "Step C"], dependencies={1: [0], 2: [0]}
         )
         mock_plan_cls.return_value = plan
 
@@ -363,7 +413,9 @@ class TestCortexParallelExecution:
         # Mock verifier
         mock_verifier = MagicMock()
         mock_verifier.verify_step = MagicMock(return_value=VerifyResult(passed=True, notes=""))
-        mock_verifier.evaluate_output = AsyncMock(return_value=VerifyResult(passed=True, notes="Verified"))
+        mock_verifier.evaluate_output = AsyncMock(
+            return_value=VerifyResult(passed=True, notes="Verified")
+        )
         mock_verifier_cls.return_value = mock_verifier
 
         async def execute_with_failure(step_index, context=""):
@@ -387,7 +439,9 @@ class TestCortexParallelExecution:
         assert plan.step_statuses["Step C"] == "completed"
 
     @pytest.mark.asyncio
-    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch.object(
+        Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result"
+    )
     @patch("cortex.Verifier")
     @patch("cortex.ExecutorAgent")
     @patch("cortex.PlannerAgent")
@@ -398,9 +452,7 @@ class TestCortexParallelExecution:
         """Steps depending on blocked step should not execute"""
         # Setup plan: 0 -> 1 -> 2 (sequential)
         plan = Plan(
-            title="Test",
-            steps=["Step A", "Step B", "Step C"],
-            dependencies={1: [0], 2: [1]}
+            title="Test", steps=["Step A", "Step B", "Step C"], dependencies={1: [0], 2: [1]}
         )
         mock_plan_cls.return_value = plan
 
@@ -411,7 +463,9 @@ class TestCortexParallelExecution:
         # Mock verifier
         mock_verifier = MagicMock()
         mock_verifier.verify_step = MagicMock(return_value=VerifyResult(passed=True, notes=""))
-        mock_verifier.evaluate_output = AsyncMock(return_value=VerifyResult(passed=True, notes="Verified"))
+        mock_verifier.evaluate_output = AsyncMock(
+            return_value=VerifyResult(passed=True, notes="Verified")
+        )
         mock_verifier_cls.return_value = mock_verifier
 
         executed_steps = []
@@ -435,18 +489,22 @@ class TestCortexParallelExecution:
         assert 2 not in executed_steps
 
     @pytest.mark.asyncio
-    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch.object(
+        Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result"
+    )
     @patch("cortex.Verifier")
     @patch("cortex.ExecutorAgent")
     @patch("cortex.PlannerAgent")
     @patch("cortex.Plan")
-    async def test_semaphore_limits_concurrency(self, mock_plan_cls, mock_planner_cls, mock_executor_cls, mock_verifier_cls, mock_aggregate):
+    async def test_semaphore_limits_concurrency(
+        self, mock_plan_cls, mock_planner_cls, mock_executor_cls, mock_verifier_cls, mock_aggregate
+    ):
         """Semaphore should limit concurrent executions to 3"""
         # Setup plan with 5 independent steps
         plan = Plan(
             title="Test",
             steps=["Step 0", "Step 1", "Step 2", "Step 3", "Step 4"],
-            dependencies={}  # All independent
+            dependencies={},  # All independent
         )
         mock_plan_cls.return_value = plan
 
@@ -457,7 +515,9 @@ class TestCortexParallelExecution:
         # Mock verifier
         mock_verifier = MagicMock()
         mock_verifier.verify_step = MagicMock(return_value=VerifyResult(passed=True, notes=""))
-        mock_verifier.evaluate_output = AsyncMock(return_value=VerifyResult(passed=True, notes="Verified"))
+        mock_verifier.evaluate_output = AsyncMock(
+            return_value=VerifyResult(passed=True, notes="Verified")
+        )
         mock_verifier_cls.return_value = mock_verifier
 
         # Track concurrent executions
@@ -493,22 +553,25 @@ class TestCortexVerificationAndReplan:
         TaskManager._plans.clear()
 
     @pytest.mark.asyncio
-    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch.object(
+        Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result"
+    )
     @patch("cortex.ReplannerAgent")
     @patch("cortex.Verifier")
     @patch("cortex.ExecutorAgent")
     @patch("cortex.PlannerAgent")
     @patch("cortex.Plan")
     async def test_verification_pass_completes_step(
-        self, mock_plan_cls, mock_planner_cls, mock_executor_cls,
-        mock_verifier_cls, mock_replanner_cls, mock_aggregate
+        self,
+        mock_plan_cls,
+        mock_planner_cls,
+        mock_executor_cls,
+        mock_verifier_cls,
+        mock_replanner_cls,
+        mock_aggregate,
     ):
         """Step should be marked completed when verification passes"""
-        plan = Plan(
-            title="Test",
-            steps=["Step A", "Step B"],
-            dependencies={1: [0]}
-        )
+        plan = Plan(title="Test", steps=["Step A", "Step B"], dependencies={1: [0]})
         mock_plan_cls.return_value = plan
 
         mock_planner = AsyncMock()
@@ -522,7 +585,9 @@ class TestCortexVerificationAndReplan:
         # Verifier passes
         mock_verifier = MagicMock()
         mock_verifier.verify_step = MagicMock(return_value=VerifyResult(passed=True, notes=""))
-        mock_verifier.evaluate_output = AsyncMock(return_value=VerifyResult(passed=True, notes="Verified"))
+        mock_verifier.evaluate_output = AsyncMock(
+            return_value=VerifyResult(passed=True, notes="Verified")
+        )
         mock_verifier_cls.return_value = mock_verifier
 
         cortex = Cortex(make_config())
@@ -533,22 +598,25 @@ class TestCortexVerificationAndReplan:
         assert plan.step_statuses["Step B"] == "completed"
 
     @pytest.mark.asyncio
-    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch.object(
+        Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result"
+    )
     @patch("cortex.ReplannerAgent")
     @patch("cortex.Verifier")
     @patch("cortex.ExecutorAgent")
     @patch("cortex.PlannerAgent")
     @patch("cortex.Plan")
     async def test_verification_fail_triggers_replan(
-        self, mock_plan_cls, mock_planner_cls, mock_executor_cls,
-        mock_verifier_cls, mock_replanner_cls, mock_aggregate
+        self,
+        mock_plan_cls,
+        mock_planner_cls,
+        mock_executor_cls,
+        mock_verifier_cls,
+        mock_replanner_cls,
+        mock_aggregate,
     ):
         """Verification failure should trigger replan"""
-        plan = Plan(
-            title="Test",
-            steps=["Step A", "Step B"],
-            dependencies={1: [0]}
-        )
+        plan = Plan(title="Test", steps=["Step A", "Step B"], dependencies={1: [0]})
         mock_plan_cls.return_value = plan
 
         mock_planner = AsyncMock()
@@ -561,22 +629,27 @@ class TestCortexVerificationAndReplan:
 
         # Verifier fails on step 0, then passes
         mock_verifier = MagicMock()
-        mock_verifier.verify_step = MagicMock(side_effect=[
-            VerifyResult(passed=False, notes="[FAIL]: test"),
-            VerifyResult(passed=True, notes=""),
-            VerifyResult(passed=True, notes=""),
-        ])
-        mock_verifier.evaluate_output = AsyncMock(return_value=VerifyResult(passed=True, notes="Verified"))
+        mock_verifier.verify_step = MagicMock(
+            side_effect=[
+                VerifyResult(passed=False, notes="[FAIL]: test"),
+                VerifyResult(passed=True, notes=""),
+                VerifyResult(passed=True, notes=""),
+            ]
+        )
+        mock_verifier.evaluate_output = AsyncMock(
+            return_value=VerifyResult(passed=True, notes="Verified")
+        )
         mock_verifier_cls.return_value = mock_verifier
 
         # Replanner redesigns
         from app.agents.replanner.replanner_agent import ReplanResult
+
         mock_replanner = AsyncMock()
-        mock_replanner.replan_subgraph = AsyncMock(return_value=ReplanResult(
-            action="redesign",
-            new_steps=["New Step A", "New Step B"],
-            new_dependencies={1: [0]}
-        ))
+        mock_replanner.replan_subgraph = AsyncMock(
+            return_value=ReplanResult(
+                action="redesign", new_steps=["New Step A", "New Step B"], new_dependencies={1: [0]}
+            )
+        )
         mock_replanner_cls.return_value = mock_replanner
 
         cortex = Cortex(make_config())
@@ -586,22 +659,25 @@ class TestCortexVerificationAndReplan:
         mock_replanner.replan_subgraph.assert_called()
 
     @pytest.mark.asyncio
-    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch.object(
+        Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result"
+    )
     @patch("cortex.ReplannerAgent")
     @patch("cortex.Verifier")
     @patch("cortex.ExecutorAgent")
     @patch("cortex.PlannerAgent")
     @patch("cortex.Plan")
     async def test_replan_give_up_marks_blocked(
-        self, mock_plan_cls, mock_planner_cls, mock_executor_cls,
-        mock_verifier_cls, mock_replanner_cls, mock_aggregate
+        self,
+        mock_plan_cls,
+        mock_planner_cls,
+        mock_executor_cls,
+        mock_verifier_cls,
+        mock_replanner_cls,
+        mock_aggregate,
     ):
         """Replan give_up should mark step as blocked"""
-        plan = Plan(
-            title="Test",
-            steps=["Step A"],
-            dependencies={}
-        )
+        plan = Plan(title="Test", steps=["Step A"], dependencies={})
         mock_plan_cls.return_value = plan
 
         mock_planner = AsyncMock()
@@ -614,17 +690,18 @@ class TestCortexVerificationAndReplan:
 
         # Verifier fails
         mock_verifier = MagicMock()
-        mock_verifier.verify_step = MagicMock(return_value=VerifyResult(passed=False, notes="[FAIL]: test"))
+        mock_verifier.verify_step = MagicMock(
+            return_value=VerifyResult(passed=False, notes="[FAIL]: test")
+        )
         mock_verifier_cls.return_value = mock_verifier
 
         # Replanner gives up
         from app.agents.replanner.replanner_agent import ReplanResult
+
         mock_replanner = AsyncMock()
-        mock_replanner.replan_subgraph = AsyncMock(return_value=ReplanResult(
-            action="give_up",
-            new_steps=[],
-            new_dependencies={}
-        ))
+        mock_replanner.replan_subgraph = AsyncMock(
+            return_value=ReplanResult(action="give_up", new_steps=[], new_dependencies={})
+        )
         mock_replanner_cls.return_value = mock_replanner
 
         cortex = Cortex(make_config())
@@ -634,22 +711,25 @@ class TestCortexVerificationAndReplan:
         assert plan.step_statuses["Step A"] == "blocked"
 
     @pytest.mark.asyncio
-    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch.object(
+        Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result"
+    )
     @patch("cortex.ReplannerAgent")
     @patch("cortex.Verifier")
     @patch("cortex.ExecutorAgent")
     @patch("cortex.PlannerAgent")
     @patch("cortex.Plan")
     async def test_max_replan_attempts_marks_blocked(
-        self, mock_plan_cls, mock_planner_cls, mock_executor_cls,
-        mock_verifier_cls, mock_replanner_cls, mock_aggregate
+        self,
+        mock_plan_cls,
+        mock_planner_cls,
+        mock_executor_cls,
+        mock_verifier_cls,
+        mock_replanner_cls,
+        mock_aggregate,
     ):
         """Should mark blocked after max_replan_attempts"""
-        plan = Plan(
-            title="Test",
-            steps=["Step A"],
-            dependencies={}
-        )
+        plan = Plan(title="Test", steps=["Step A"], dependencies={})
         # Simulate already having 2 attempts (max)
         plan.replan_attempts[0] = 2
         mock_plan_cls.return_value = plan
@@ -664,7 +744,9 @@ class TestCortexVerificationAndReplan:
 
         # Verifier fails
         mock_verifier = MagicMock()
-        mock_verifier.verify_step = MagicMock(return_value=VerifyResult(passed=False, notes="[FAIL]: test"))
+        mock_verifier.verify_step = MagicMock(
+            return_value=VerifyResult(passed=False, notes="[FAIL]: test")
+        )
         mock_verifier_cls.return_value = mock_verifier
 
         # Replanner should NOT be called
@@ -679,22 +761,27 @@ class TestCortexVerificationAndReplan:
         mock_replanner.replan_subgraph.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch.object(
+        Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result"
+    )
     @patch("cortex.ReplannerAgent")
     @patch("cortex.Verifier")
     @patch("cortex.ExecutorAgent")
     @patch("cortex.PlannerAgent")
     @patch("cortex.Plan")
     async def test_downstream_steps_included_in_replan(
-        self, mock_plan_cls, mock_planner_cls, mock_executor_cls,
-        mock_verifier_cls, mock_replanner_cls, mock_aggregate
+        self,
+        mock_plan_cls,
+        mock_planner_cls,
+        mock_executor_cls,
+        mock_verifier_cls,
+        mock_replanner_cls,
+        mock_aggregate,
     ):
         """Replan should include failed step and all downstream dependencies"""
         # 0 -> 1 -> 2
         plan = Plan(
-            title="Test",
-            steps=["Step A", "Step B", "Step C"],
-            dependencies={1: [0], 2: [1]}
+            title="Test", steps=["Step A", "Step B", "Step C"], dependencies={1: [0], 2: [1]}
         )
         mock_plan_cls.return_value = plan
 
@@ -708,17 +795,22 @@ class TestCortexVerificationAndReplan:
 
         # Verifier fails on step 0
         mock_verifier = MagicMock()
-        mock_verifier.verify_step = MagicMock(side_effect=[
-            VerifyResult(passed=False, notes="[FAIL]: test"),
-            VerifyResult(passed=True, notes=""),
-            VerifyResult(passed=True, notes=""),
-            VerifyResult(passed=True, notes=""),
-        ])
-        mock_verifier.evaluate_output = AsyncMock(return_value=VerifyResult(passed=True, notes="Verified"))
+        mock_verifier.verify_step = MagicMock(
+            side_effect=[
+                VerifyResult(passed=False, notes="[FAIL]: test"),
+                VerifyResult(passed=True, notes=""),
+                VerifyResult(passed=True, notes=""),
+                VerifyResult(passed=True, notes=""),
+            ]
+        )
+        mock_verifier.evaluate_output = AsyncMock(
+            return_value=VerifyResult(passed=True, notes="Verified")
+        )
         mock_verifier_cls.return_value = mock_verifier
 
         # Track replan calls
         from app.agents.replanner.replanner_agent import ReplanResult
+
         replan_calls = []
 
         async def capture_replan(steps_to_replan, available_tools):
@@ -726,7 +818,7 @@ class TestCortexVerificationAndReplan:
             return ReplanResult(
                 action="redesign",
                 new_steps=["New A", "New B", "New C"],
-                new_dependencies={1: [0], 2: [1]}
+                new_dependencies={1: [0], 2: [1]},
             )
 
         mock_replanner = AsyncMock()
@@ -742,23 +834,26 @@ class TestCortexVerificationAndReplan:
         assert 0 in replan_calls[0]
 
     @pytest.mark.asyncio
-    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch.object(
+        Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result"
+    )
     @patch("cortex.ReplannerAgent")
     @patch("cortex.Verifier")
     @patch("cortex.ExecutorAgent")
     @patch("cortex.PlannerAgent")
     @patch("cortex.Plan")
     async def test_batch_replan_collects_multiple_failures(
-        self, mock_plan_cls, mock_planner_cls, mock_executor_cls,
-        mock_verifier_cls, mock_replanner_cls, mock_aggregate
+        self,
+        mock_plan_cls,
+        mock_planner_cls,
+        mock_executor_cls,
+        mock_verifier_cls,
+        mock_replanner_cls,
+        mock_aggregate,
     ):
         """Multiple failures in same batch should trigger single replan with all steps"""
         # Independent parallel steps: 0, 1, 2 (no dependencies)
-        plan = Plan(
-            title="Test",
-            steps=["Step A", "Step B", "Step C"],
-            dependencies={}
-        )
+        plan = Plan(title="Test", steps=["Step A", "Step B", "Step C"], dependencies={})
         mock_plan_cls.return_value = plan
 
         mock_planner = AsyncMock()
@@ -771,29 +866,30 @@ class TestCortexVerificationAndReplan:
 
         # Steps 0 and 2 fail verification, step 1 passes
         mock_verifier = MagicMock()
-        mock_verifier.verify_step = MagicMock(side_effect=[
-            VerifyResult(passed=False, notes="[FAIL]: test"),
-            VerifyResult(passed=True, notes=""),
-            VerifyResult(passed=False, notes="[FAIL]: test"),
-            VerifyResult(passed=True, notes=""),
-            VerifyResult(passed=True, notes=""),
-        ])
-        mock_verifier.evaluate_output = AsyncMock(return_value=VerifyResult(passed=True, notes="Verified"))
+        mock_verifier.verify_step = MagicMock(
+            side_effect=[
+                VerifyResult(passed=False, notes="[FAIL]: test"),
+                VerifyResult(passed=True, notes=""),
+                VerifyResult(passed=False, notes="[FAIL]: test"),
+                VerifyResult(passed=True, notes=""),
+                VerifyResult(passed=True, notes=""),
+            ]
+        )
+        mock_verifier.evaluate_output = AsyncMock(
+            return_value=VerifyResult(passed=True, notes="Verified")
+        )
         mock_verifier.get_failed_calls = MagicMock(return_value=[])
         mock_verifier.get_failure_reason = MagicMock(return_value="Test failure")
         mock_verifier_cls.return_value = mock_verifier
 
         # Track replan calls
         from app.agents.replanner.replanner_agent import ReplanResult
+
         replan_calls = []
 
         async def capture_replan(steps_to_replan, available_tools):
             replan_calls.append(sorted(steps_to_replan))
-            return ReplanResult(
-                action="redesign",
-                new_steps=["New Step"],
-                new_dependencies={}
-            )
+            return ReplanResult(action="redesign", new_steps=["New Step"], new_dependencies={})
 
         mock_replanner = AsyncMock()
         mock_replanner.replan_subgraph = AsyncMock(side_effect=capture_replan)
@@ -808,22 +904,25 @@ class TestCortexVerificationAndReplan:
         assert 0 in replan_calls[0] or 2 in replan_calls[0]
 
     @pytest.mark.asyncio
-    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch.object(
+        Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result"
+    )
     @patch("cortex.ReplannerAgent")
     @patch("cortex.Verifier")
     @patch("cortex.ExecutorAgent")
     @patch("cortex.PlannerAgent")
     @patch("cortex.Plan")
     async def test_notes_failure_reason_logged(
-        self, mock_plan_cls, mock_planner_cls, mock_executor_cls,
-        mock_verifier_cls, mock_replanner_cls, mock_aggregate
+        self,
+        mock_plan_cls,
+        mock_planner_cls,
+        mock_executor_cls,
+        mock_verifier_cls,
+        mock_replanner_cls,
+        mock_aggregate,
     ):
         """Notes-based failure reason should be used in logging"""
-        plan = Plan(
-            title="Test",
-            steps=["Step A"],
-            dependencies={}
-        )
+        plan = Plan(title="Test", steps=["Step A"], dependencies={})
         mock_plan_cls.return_value = plan
 
         mock_planner = AsyncMock()
@@ -836,19 +935,20 @@ class TestCortexVerificationAndReplan:
 
         # Verifier fails with Notes-based failure
         mock_verifier = MagicMock()
-        mock_verifier.verify_step = MagicMock(return_value=VerifyResult(passed=False, notes="[FAIL]: Unable to access Facebook API"))
+        mock_verifier.verify_step = MagicMock(
+            return_value=VerifyResult(passed=False, notes="[FAIL]: Unable to access Facebook API")
+        )
         mock_verifier.get_failed_calls = MagicMock(return_value=[])
         mock_verifier.get_failure_reason = MagicMock(return_value="Unable to access Facebook API")
         mock_verifier_cls.return_value = mock_verifier
 
         # Replanner gives up
         from app.agents.replanner.replanner_agent import ReplanResult
+
         mock_replanner = AsyncMock()
-        mock_replanner.replan_subgraph = AsyncMock(return_value=ReplanResult(
-            action="give_up",
-            new_steps=[],
-            new_dependencies={}
-        ))
+        mock_replanner.replan_subgraph = AsyncMock(
+            return_value=ReplanResult(action="give_up", new_steps=[], new_dependencies={})
+        )
         mock_replanner_cls.return_value = mock_replanner
 
         cortex = Cortex(make_config())
@@ -878,10 +978,24 @@ class TestCortexIntentDispatch:
         sys.modules["_test_dispatch_rev"] = fake_mod_rev
 
         try:
-            cortex = Cortex(make_config(executors=[
-                ExecutorEntry(intent="generate", description="Gen", factory_module="_test_dispatch_gen", factory_function="create"),
-                ExecutorEntry(intent="review", description="Review", factory_module="_test_dispatch_rev", factory_function="create"),
-            ]))
+            cortex = Cortex(
+                make_config(
+                    executors=[
+                        ExecutorEntry(
+                            intent="generate",
+                            description="Gen",
+                            factory_module="_test_dispatch_gen",
+                            factory_function="create",
+                        ),
+                        ExecutorEntry(
+                            intent="review",
+                            description="Review",
+                            factory_module="_test_dispatch_rev",
+                            factory_function="create",
+                        ),
+                    ]
+                )
+            )
             assert cortex._get_executor_factory("generate") is gen_factory
             assert cortex._get_executor_factory("review") is review_factory
             assert cortex._get_executor_factory("default") is None
@@ -890,7 +1004,9 @@ class TestCortexIntentDispatch:
             del sys.modules["_test_dispatch_rev"]
 
     @pytest.mark.asyncio
-    @patch.object(Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result")
+    @patch.object(
+        Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result"
+    )
     @patch("cortex.Verifier")
     @patch("cortex.PlannerAgent")
     async def test_external_executor_uses_evaluate_output(
@@ -898,10 +1014,7 @@ class TestCortexIntentDispatch:
     ):
         """External executor steps should be verified via evaluate_output"""
         plan = Plan(
-            title="Test",
-            steps=["Generate code"],
-            dependencies={},
-            step_intents={0: "generate"}
+            title="Test", steps=["Generate code"], dependencies={}, step_intents={0: "generate"}
         )
 
         mock_planner = AsyncMock()
@@ -911,20 +1024,23 @@ class TestCortexIntentDispatch:
         # Mock verifier: verify_step passes (no tool history), but evaluate_output fails
         mock_verifier = MagicMock()
         mock_verifier.verify_step = MagicMock(return_value=VerifyResult(passed=True, notes=""))
-        mock_verifier.evaluate_output = AsyncMock(return_value=VerifyResult(
-            passed=False, notes="[FAIL]: Output was just a description, no actual code"
-        ))
+        mock_verifier.evaluate_output = AsyncMock(
+            return_value=VerifyResult(
+                passed=False, notes="[FAIL]: Output was just a description, no actual code"
+            )
+        )
         mock_verifier.get_failed_calls = MagicMock(return_value=[])
         mock_verifier.get_failure_reason = MagicMock(return_value="Output was just a description")
         mock_verifier_cls.return_value = mock_verifier
 
         # Replanner gives up (to end the loop)
         from app.agents.replanner.replanner_agent import ReplanResult
+
         with patch("cortex.ReplannerAgent") as mock_replanner_cls:
             mock_replanner = AsyncMock()
-            mock_replanner.replan_subgraph = AsyncMock(return_value=ReplanResult(
-                action="give_up", new_steps=[], new_dependencies={}
-            ))
+            mock_replanner.replan_subgraph = AsyncMock(
+                return_value=ReplanResult(action="give_up", new_steps=[], new_dependencies={})
+            )
             mock_replanner_cls.return_value = mock_replanner
 
             # External executor factory - mock _get_executor_factory directly
@@ -934,10 +1050,16 @@ class TestCortexIntentDispatch:
 
             with patch("cortex.Plan", return_value=plan):
                 with patch("cortex.ExecutorAgent"):
-                    with patch("app.agents.base.base_agent.BaseAgent.execute", new_callable=AsyncMock, return_value=mock_exec_result):
+                    with patch(
+                        "app.agents.base.base_agent.BaseAgent.execute",
+                        new_callable=AsyncMock,
+                        return_value=mock_exec_result,
+                    ):
                         cortex = Cortex(make_config())
                         # Mock _get_executor_factory to return our lambda factory
-                        cortex._get_executor_factory = lambda intent: (lambda: mock_agent) if intent == "generate" else None
+                        cortex._get_executor_factory = lambda intent: (
+                            (lambda: mock_agent) if intent == "generate" else None
+                        )
                         await cortex.execute("Generate parser code")
 
         # evaluate_output should have been called for external executor

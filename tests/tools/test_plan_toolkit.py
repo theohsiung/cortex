@@ -1,4 +1,3 @@
-import pytest
 from app.task.plan import Plan
 from app.tools.plan_toolkit import PlanToolkit
 
@@ -10,10 +9,7 @@ class TestPlanToolkit:
 
     def test_create_plan(self):
         """Should populate plan with title and steps"""
-        result = self.toolkit.create_plan(
-            title="Test Plan",
-            steps=["Step 1", "Step 2"]
-        )
+        result = self.toolkit.create_plan(title="Test Plan", steps=["Step 1", "Step 2"])
 
         assert self.plan.title == "Test Plan"
         assert self.plan.steps == ["Step 1", "Step 2"]
@@ -21,20 +17,13 @@ class TestPlanToolkit:
 
     def test_create_plan_with_dependencies(self):
         """Should use provided dependencies"""
-        self.toolkit.create_plan(
-            title="Test",
-            steps=["A", "B", "C"],
-            dependencies={2: [0, 1]}
-        )
+        self.toolkit.create_plan(title="Test", steps=["A", "B", "C"], dependencies={2: [0, 1]})
 
         assert self.plan.dependencies == {2: [0, 1]}
 
     def test_create_plan_auto_dependencies(self):
         """Should generate sequential dependencies when not provided"""
-        self.toolkit.create_plan(
-            title="Test",
-            steps=["A", "B", "C"]
-        )
+        self.toolkit.create_plan(title="Test", steps=["A", "B", "C"])
 
         assert self.plan.dependencies == {1: [0], 2: [1]}
 
@@ -104,18 +93,14 @@ class TestPlanToolkitIntents:
             title="Test",
             steps=["Generate code", "Review code"],
             dependencies={1: [0]},
-            intents={0: "generate", 1: "review"}
+            intents={0: "generate", 1: "review"},
         )
         assert self.plan.step_intents[0] == "generate"
         assert self.plan.step_intents[1] == "review"
 
     def test_create_plan_without_intents_defaults(self):
         """create_plan without intents should default to 'default'"""
-        self.toolkit.create_plan(
-            title="Test",
-            steps=["A", "B"],
-            dependencies={1: [0]}
-        )
+        self.toolkit.create_plan(title="Test", steps=["A", "B"], dependencies={1: [0]})
         assert self.plan.step_intents[0] == "default"
         assert self.plan.step_intents[1] == "default"
 
@@ -125,22 +110,18 @@ class TestPlanToolkitIntents:
             title="Test",
             steps=["Generate code", "Review code"],
             dependencies={1: [0]},
-            intents={"0": "generate", "1": "review"}
+            intents={"0": "generate", "1": "review"},
         )
         assert self.plan.step_intents[0] == "generate"
         assert self.plan.step_intents[1] == "review"
 
     def test_update_plan_with_intents(self):
         """update_plan should accept and set intents"""
-        self.toolkit.create_plan(
-            title="Test",
-            steps=["A", "B"],
-            dependencies={1: [0]}
-        )
+        self.toolkit.create_plan(title="Test", steps=["A", "B"], dependencies={1: [0]})
         self.toolkit.update_plan(
             steps=["Generate code", "Fix bugs", "Review code"],
             dependencies={1: [0], 2: [1]},
-            intents={0: "generate", 1: "fix", 2: "review"}
+            intents={0: "generate", 1: "fix", 2: "review"},
         )
         assert self.plan.step_intents[0] == "generate"
         assert self.plan.step_intents[1] == "fix"

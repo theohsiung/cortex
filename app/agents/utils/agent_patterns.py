@@ -1,8 +1,9 @@
+from typing import AsyncGenerator, List
+
 from google.adk.agents import BaseAgent, LlmAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event
-from google.adk.tools import ToolContext, FunctionTool
-from typing import AsyncGenerator, Optional, List
+from google.adk.tools import FunctionTool, ToolContext
 
 # Standard completion phrase key, can be imported by users
 COMPLETION_PHRASE = "計畫可行，且符合所有限制條件。"
@@ -44,9 +45,7 @@ class GenericLoop(BaseAgent):
         self.max_iterations = max_iterations
         self.exit_key = exit_key
 
-    async def _run_async_impl(
-        self, ctx: InvocationContext
-    ) -> AsyncGenerator[Event, None]:
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         # Reset exit flag at start of the loop
         if ctx.session and ctx.session.state:
             ctx.session.state[self.exit_key] = False
@@ -54,7 +53,7 @@ class GenericLoop(BaseAgent):
         for i in range(self.max_iterations):
             yield Event(
                 author=self.name,
-                content={"parts": [{"text": f"\n🔄 進入迴圈 Round {i+1}...\n"}]},
+                content={"parts": [{"text": f"\n🔄 進入迴圈 Round {i + 1}...\n"}]},
             )
 
             # Run all sub-agents in order
