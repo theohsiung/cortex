@@ -30,7 +30,7 @@ from cortex import Cortex
 
 async def main() -> None:
     """Run Cortex with a sample query."""
-    config = CortexConfig()
+    config = CortexConfig()  # type: ignore[call-arg]
     cortex = Cortex(config)
 
     query = "調用agent檢查以下python程式碼有沒有錯誤?:print(我在家)"

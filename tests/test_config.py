@@ -77,7 +77,7 @@ class TestMCPSse:
 class TestMCPServerDiscriminator:
     """Discriminated union via MCPServer type alias."""
 
-    ta = TypeAdapter(MCPServer)
+    ta: TypeAdapter[MCPServer] = TypeAdapter(MCPServer)
 
     def test_routes_to_stdio(self):
         obj = self.ta.validate_python(

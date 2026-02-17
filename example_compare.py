@@ -45,7 +45,7 @@ async def single_llm_call(model, query: str) -> tuple[str, float]:
     result = ""
     async for event in runner.run_async(user_id="user", session_id=session.id, new_message=content):
         if hasattr(event, "content") and event.content:
-            if hasattr(event.content, "parts"):
+            if hasattr(event.content, "parts") and event.content.parts:
                 for part in event.content.parts:
                     if hasattr(part, "text") and part.text:
                         result = part.text
@@ -67,7 +67,7 @@ async def cortex_call(config: CortexConfig, query: str) -> tuple[str, float]:
 
 async def main() -> None:
     """Run comparison between single LLM call and Cortex multi-step execution."""
-    config = CortexConfig()
+    config = CortexConfig()  # type: ignore[call-arg]
 
     # For single_llm_call, create model from config
     model = LiteLlm(

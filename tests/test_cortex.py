@@ -20,7 +20,7 @@ def make_config(**overrides) -> CortexConfig:
     """Create a minimal CortexConfig for testing."""
     defaults = {"model": ModelConfig(name="test-model", api_base="http://test/v1")}
     defaults.update(overrides)
-    return CortexConfig(**defaults)
+    return CortexConfig(**defaults)  # type: ignore[arg-type]
 
 
 class TestCortex:
