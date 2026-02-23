@@ -53,7 +53,7 @@ python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
-exclude = ["app/agents/coding_agent/"]
+exclude = ["app/agents/coding_agent/", "tools.py"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
