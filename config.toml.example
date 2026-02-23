@@ -34,3 +34,10 @@ max_replan_attempts = 2
 # factory_module = "app.agents.coding_agent.agent.mistral_vibe._agent"
 # factory_function = "create_coding_agent"
 # is_default = true
+
+# General Task Agent (handles web search, file analysis, data processing, etc.)
+# [[executors]]
+# intent = "general"
+# description = "Handle general tasks: web search, file analysis, data processing, calculation, audio transcription"
+# factory_module = "general_task._agent"
+# factory_function = "create_general_task_agent"
