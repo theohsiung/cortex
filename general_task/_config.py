@@ -24,7 +24,7 @@ class _AgentConfig:
         self._api_key: Optional[str] = None
         self._api_base: Optional[str] = None
         self._model_name: Optional[str] = None
-        self._output_dir: str = "/tmp/general_task_output"
+        self._output_dir: str = "./tmp/general_task_output"
 
     @property
     def api_key(self) -> Optional[str]:

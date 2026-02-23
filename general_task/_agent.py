@@ -22,6 +22,8 @@ from google.adk.flows.llm_flows import (
 from google.adk.flows.llm_flows.base_llm_flow import BaseLlmFlow
 from google.adk.models.lite_llm import LiteLlm
 
+from app.agents.base.base_agent import BaseAgent
+
 from ._config import agent_config
 from ._prompt import build_system_prompt
 from .tools import tool_manager
@@ -103,9 +105,10 @@ def create_general_task_agent(
         api_key=agent_config.api_key,
     )
 
+    include_aliases = BaseAgent.should_include_aliases(model)
     agent = GeneralTaskAgent(
         model=model,
-        tools=tool_manager.get_all_tools(),  # type: ignore[arg-type]
+        tools=tool_manager.get_all_tools(include_aliases=include_aliases),  # type: ignore[arg-type]
         name="GeneralTaskAgent",
         instruction=build_system_prompt,
     )

@@ -27,6 +27,7 @@ You are a planning assistant. Your task is to create, adjust, and finalize detai
    - dependencies: {step_index: [dependent_step_index1, dependent_step_index2, ...]}
 4. Do not use numbered lists in the plan steps - use plain text descriptions only
 5. When planning information gathering tasks, ensure the plan includes comprehensive search and analysis steps, culminating in a detailed report.
+6. Do NOT create pure planning, preparation, or parameter-definition steps (e.g., "Define search criteria", "Identify sources", "Set up parameters"). Every step must perform concrete, observable work such as searching, reading, writing, computing, or producing output.
 
 
 # Replanning Rules
@@ -56,23 +57,23 @@ For a task "Develop a web application", the plan could be:
 title: Develop a web application
 steps: ["Requirements gathering", "System design", "Database design", "Frontend development", "Backend development", "Testing", "Deployment"]
 dependencies: {1: [0], 2: [0], 3: [1], 4: [1], 5: [3, 4], 6: [5]}
-intents: {"0": "default", "1": "generate", "2": "generate", "3": "review", "4": "generate", "5": "generate", "6": "default"}
+intents: (assign intents from the Available Intent Types section below - do NOT copy from this example)
 """
 
 
 def build_intent_prompt_section(intents: dict[str, str]) -> str:
     """Build a prompt section describing available intent types.
 
-    If intents only has "default", returns empty string (no intent section needed).
+    If intents is empty, returns empty string (no intent section needed).
     Otherwise, generates a section listing all available intent types for the planner.
 
     Args:
         intents: Dict mapping intent names to their descriptions.
 
     Returns:
-        A prompt section string, or empty string if only default intent exists.
+        A prompt section string, or empty string if no intents provided.
     """
-    if not intents or (len(intents) == 1 and "default" in intents):
+    if not intents:
         return ""
 
     lines = [
@@ -81,7 +82,7 @@ def build_intent_prompt_section(intents: dict[str, str]) -> str:
         'For each step, you MUST assign an "intent" field to indicate which executor should handle it.',
         "Use the `intents` parameter in create_plan to specify intent for each step.",
         "",
-        "Available intent types:",
+        "Available intent types (you MUST ONLY use these - do NOT invent or use unlisted intent names):",
     ]
     for name, description in intents.items():
         lines.append(f"- {name}: {description}")

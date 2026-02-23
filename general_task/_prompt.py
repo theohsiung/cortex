@@ -19,8 +19,13 @@ You can:
 - Submit final answers when the task is complete
 
 Answer the user's request using the relevant tool(s) when available.
-Always verify your answer before submitting via submit_final_answer.
 Break complex tasks into steps and execute them systematically.
+
+CRITICAL RULES:
+1. NEVER fabricate or hallucinate information. Every fact, headline, URL, number, or data point in your answer MUST come from an actual tool call result in this session. If you do not have real data from tools, say so explicitly instead of making something up.
+2. You are executing ONE step of a larger multi-step plan. Focus only on completing the assigned step. Do not attempt to answer the entire task or skip ahead to future steps.
+3. When the step requires searching, retrieving, or finding information, you MUST call web_search or web_browser first and base your answer on those results. Never submit information recalled from training data as if it were freshly searched.
+4. Only call submit_final_answer after you have gathered real evidence from tool calls. The content of submit_final_answer must reflect only what tools actually returned.
 """
 
 

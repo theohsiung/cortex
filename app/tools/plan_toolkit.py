@@ -72,14 +72,38 @@ class PlanToolkit:
     )
 
     @staticmethod
-    def _normalize_intents(intents: dict) -> dict[int, str]:
-        """Normalize intents dict to ensure all keys are integers.
+    def _normalize_intents(intents: dict | list) -> dict[int, str]:
+        """Normalize intents to ensure all keys are integers.
 
         JSON parsing from LLM converts dict keys to strings, so we convert them back.
+        Also handles list format (e.g. ["general", "general"]) where index = step index.
         """
         if not intents:
             return {}
-        return {int(k): v for k, v in intents.items()}
+        if isinstance(intents, list):
+            return {i: (v[0] if isinstance(v, list) else v) for i, v in enumerate(intents)}
+        return {int(k): (v[0] if isinstance(v, list) else v) for k, v in intents.items()}
+
+    @staticmethod
+    def _normalize_steps(
+        steps: list, intents: dict[int, str] | None
+    ) -> tuple[list[str], dict[int, str] | None]:
+        """Normalize steps to list[str], extracting inline intents if steps are dicts.
+
+        LLMs sometimes pass steps as list of dicts like
+        [{"description": "...", "intent": "general"}, ...] instead of list[str].
+        """
+        if not steps or not isinstance(steps[0], dict):
+            return steps, intents
+
+        normalized: list[str] = []
+        extracted_intents: dict[int, str] = dict(intents) if intents else {}
+        for i, step in enumerate(steps):
+            desc = step.get("description") or step.get("step") or step.get("text") or str(step)
+            normalized.append(desc)
+            if "intent" in step and i not in extracted_intents:
+                extracted_intents[i] = step["intent"]
+        return normalized, extracted_intents or None
 
     def create_plan(
         self,
@@ -89,6 +113,7 @@ class PlanToolkit:
         intents: dict[int, str] | None = None,
     ) -> str:
         """Create a new plan with title, steps, optional dependencies and intents."""
+        steps, intents = self._normalize_steps(steps, intents)
         fallback_used = False
         if dependencies is None and len(steps) > 1:
             dependencies = {i: [i - 1] for i in range(1, len(steps))}
@@ -137,7 +162,13 @@ class PlanToolkit:
 
         if include_aliases:
             # Add aliased tools for common hallucinated suffixes (gpt-oss specific)
-            hallucinated_suffixes = ["<|channel|>json", "<|end|>", "<|tool|>", "json"]
+            hallucinated_suffixes = [
+                "<|channel|>commentary",
+                "<|channel|>json",
+                "<|end|>",
+                "<|tool|>",
+                "json",
+            ]
             for suffix in hallucinated_suffixes:
                 tools.append(self._create_aliased_tool(self.create_plan, f"create_plan{suffix}"))
                 tools.append(self._create_aliased_tool(self.update_plan, f"update_plan{suffix}"))

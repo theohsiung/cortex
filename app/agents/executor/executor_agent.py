@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 from typing import TYPE_CHECKING, Any, Callable
 
 from app.agents.base.base_agent import BaseAgent, ExecutionContext
@@ -11,6 +12,8 @@ from app.task.task_manager import TaskManager
 
 if TYPE_CHECKING:
     pass
+
+logger = logging.getLogger(__name__)
 
 
 class ExecutorAgent(BaseAgent):
@@ -85,7 +88,11 @@ class ExecutorAgent(BaseAgent):
         super().__init__(agent=agent, tool_functions={}, plan_id=plan_id)
 
     async def execute_step(self, step_index: int, context: str = "") -> str:
-        """Execute a specific step."""
+        """Execute a specific step.
+
+        After execution, if 0 tool calls were made, retries once with a nudge
+        message to push the LLM to actually call tools instead of just describing.
+        """
         exec_context = ExecutionContext(step_index=step_index)
         assert self.plan is not None
         step_desc = self.plan.steps[step_index]
@@ -94,4 +101,20 @@ class ExecutorAgent(BaseAgent):
             query += f"\n\nContext: {context}"
 
         result = await self.execute(query, exec_context=exec_context)
+
+        # Check if any tool calls were made for this step
+        tool_history = self.plan.step_tool_history.get(step_index, [])
+        if not tool_history:
+            # 0 tool calls — retry once with a nudge
+            logger.warning("Step %d had 0 tool calls, retrying with nudge", step_index)
+            nudge = (
+                f"Your previous response for step {step_index} contained NO tool calls. "
+                f"You only described what should be done instead of actually doing it.\n\n"
+                f"You MUST call the appropriate tool(s) now to complete this step:\n"
+                f"{step_desc}\n\n"
+                f"Call the tool directly. Do NOT explain — just execute."
+            )
+            exec_context_retry = ExecutionContext(step_index=step_index)
+            result = await self.execute(nudge, exec_context=exec_context_retry)
+
         return result.output

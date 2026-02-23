@@ -75,8 +75,8 @@ class TestPlanToolkit:
         """Should include aliased versions when include_aliases=True"""
         functions = self.toolkit.get_tool_functions(include_aliases=True)
 
-        # Should include original tools and aliased versions (2 + 4*2 = 10)
-        assert len(functions) == 10
+        # Should include original tools and aliased versions (2 + 5*2 = 12)
+        assert len(functions) == 12
 
         # All should be callable
         assert all(callable(f) for f in functions)

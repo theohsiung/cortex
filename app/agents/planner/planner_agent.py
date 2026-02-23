@@ -63,9 +63,10 @@ class PlannerAgent(BaseAgent):
 
         # Build instruction with optional intent section
         instruction = PLANNER_SYSTEM_PROMPT
-        if available_intents and len(available_intents) > 1:
+        if available_intents:
             intent_section = build_intent_prompt_section(available_intents)
-            instruction = instruction + "\n\n" + intent_section
+            if intent_section:
+                instruction = instruction + "\n\n" + intent_section
 
         # Use factory or create default LlmAgent
         if agent_factory is not None:

@@ -16,7 +16,9 @@ wheels/
 .env
 .env.*
 !.env.sample
+!.env.example
 !**/.env.sample
+!**/.env.example
 
 # User config (copy config.toml.example to config.toml)
 config.toml
@@ -25,3 +27,9 @@ config.toml
 docs/
 scripts/
 app/agents/coding_agent/
+tools.py
+note.txt
+
+# Runtime output
+tmp/
+logs/

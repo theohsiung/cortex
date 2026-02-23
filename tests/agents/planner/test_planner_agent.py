@@ -121,10 +121,18 @@ class TestPlannerAgentIntents:
         assert "Generate new code" in prompt
         assert "default" in prompt
 
-    def test_intent_prompt_not_injected_when_only_default(self):
-        """Should not inject intent section when only 'default' intent exists"""
+    def test_intent_prompt_injected_for_single_intent(self):
+        """Should inject intent section even when only one intent exists"""
         from app.agents.planner.prompts import build_intent_prompt_section
 
-        intents = {"default": "General tasks"}
+        intents = {"general": "Handle general tasks"}
         prompt = build_intent_prompt_section(intents)
-        assert prompt == ""  # No need to inject when only default
+        assert "general" in prompt
+        assert "Handle general tasks" in prompt
+
+    def test_intent_prompt_not_injected_when_empty(self):
+        """Should not inject intent section when intents dict is empty"""
+        from app.agents.planner.prompts import build_intent_prompt_section
+
+        prompt = build_intent_prompt_section({})
+        assert prompt == ""

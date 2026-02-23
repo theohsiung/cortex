@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import importlib
 import os
 from pathlib import Path
@@ -60,8 +61,39 @@ class ToolManager:
             tool_prompt = (dir_path / file).read_text(encoding="utf-8")
             self.tool_prompts.append(tool_prompt)
 
-    def get_all_tools(self) -> List[FunctionTool]:
-        return self.tools
+    @staticmethod
+    def _generate_alias_suffixes(max_depth: int = 3) -> list[str]:
+        """Generate all permutations of noise tokens up to max_depth.
+
+        gpt-oss models hallucinate suffixes like <|channel|>commentary, json,
+        and combinations thereof. Rather than hardcoding each pattern, we
+        generate all products of the three tokens up to max_depth so any
+        future combination is automatically covered.
+        """
+        import itertools
+
+        noise_tokens = ["json", "commentary", "<|channel|>"]
+        suffixes: set[str] = set()
+        for depth in range(1, max_depth + 1):
+            for combo in itertools.product(noise_tokens, repeat=depth):
+                suffixes.add("".join(combo))
+        return list(suffixes)
+
+    def get_all_tools(self, include_aliases: bool = False) -> List[FunctionTool]:
+        tools = list(self.tools)
+        if include_aliases:
+            for tool in self.tools:
+                func = tool.func
+                for suffix in self._generate_alias_suffixes():
+                    alias_name = f"{func.__name__}{suffix}"
+
+                    @functools.wraps(func)
+                    def wrapper(*args: object, _f: object = func, **kwargs: object) -> object:
+                        return _f(*args, **kwargs)  # type: ignore[operator]
+
+                    wrapper.__name__ = alias_name
+                    tools.append(FunctionTool(wrapper))
+        return tools
 
     def get_all_tool_prompts(self) -> List[str]:
         return self.tool_prompts

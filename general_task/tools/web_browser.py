@@ -112,6 +112,18 @@ def web_browser(url: str, action: str = "navigate") -> str:
                 method = "requests"
             except Exception as e:
                 last_error = e
+                # Don't retry on 4xx client errors - they won't succeed on retry
+                try:
+                    import requests as _requests  # type: ignore[import-untyped]
+
+                    if (
+                        isinstance(e, _requests.HTTPError)
+                        and e.response is not None
+                        and e.response.status_code < 500
+                    ):
+                        return f"[ERROR] Web browser failed: {e} (client error, not retrying)"
+                except ImportError:
+                    pass
                 if attempt < max_retries - 1:
                     import time
 
