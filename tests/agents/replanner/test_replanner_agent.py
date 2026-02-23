@@ -380,3 +380,156 @@ class TestReplannerIntents:
         assert "generate" in prompt
         assert "review" in prompt
         assert "Available Intents" in prompt
+
+
+class TestReplannerWithContext:
+    """Tests for replanner with ReplanContext"""
+
+    def setup_method(self):
+        TaskManager.remove_plan("test_plan")
+
+    def teardown_method(self):
+        TaskManager.remove_plan("test_plan")
+
+    def test_build_prompt_includes_original_query(self):
+        """Should include original task query when context provided"""
+        plan = Plan(steps=["S0", "S1"], dependencies={1: [0]})
+        plan.mark_step(0, step_status="completed")
+        TaskManager.set_plan("test_plan", plan)
+
+        ctx = ReplanContext(
+            original_query="Find the ZIP code for clownfish sightings in Florida",
+            failed_step_notes={1: "[FAIL]: Found geo | No ZIP"},
+            failed_step_outputs={1: "Downloaded 1 record..."},
+            failed_tool_history={
+                1: [{"tool": "download_file", "args": {}, "status": "success", "result": "ok"}]
+            },
+            attempt_number=1,
+            max_attempts=2,
+        )
+
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
+            agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
+
+        prompt = agent._build_replan_prompt(
+            steps_to_replan=[1], available_tools=["tool_a"], context=ctx
+        )
+
+        assert "Find the ZIP code for clownfish sightings in Florida" in prompt
+        assert "Original Task" in prompt
+
+    def test_build_prompt_includes_failure_notes(self):
+        """Should include failure notes for failed steps"""
+        plan = Plan(steps=["S0", "S1"], dependencies={1: [0]})
+        plan.mark_step(0, step_status="completed")
+        TaskManager.set_plan("test_plan", plan)
+
+        ctx = ReplanContext(
+            original_query="task",
+            failed_step_notes={1: "[FAIL]: Found geo coords | No ZIP code field"},
+            failed_step_outputs={1: "output"},
+            failed_tool_history={},
+            attempt_number=1,
+            max_attempts=2,
+        )
+
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
+            agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
+
+        prompt = agent._build_replan_prompt(steps_to_replan=[1], available_tools=[], context=ctx)
+
+        assert "Found geo coords" in prompt
+        assert "No ZIP code field" in prompt
+
+    def test_build_prompt_includes_attempt_info(self):
+        """Should include attempt number and max attempts"""
+        plan = Plan(steps=["S0", "S1"], dependencies={1: [0]})
+        plan.mark_step(0, step_status="completed")
+        TaskManager.set_plan("test_plan", plan)
+
+        ctx = ReplanContext(
+            original_query="task",
+            failed_step_notes={},
+            failed_step_outputs={},
+            failed_tool_history={},
+            attempt_number=2,
+            max_attempts=3,
+        )
+
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
+            agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
+
+        prompt = agent._build_replan_prompt(steps_to_replan=[1], available_tools=[], context=ctx)
+
+        assert "2" in prompt and "3" in prompt
+        assert "different strategy" in prompt.lower() or "attempt" in prompt.lower()
+
+    def test_build_prompt_truncates_long_output(self):
+        """Should truncate executor output to last 500 chars"""
+        plan = Plan(steps=["S0", "S1"], dependencies={1: [0]})
+        plan.mark_step(0, step_status="completed")
+        TaskManager.set_plan("test_plan", plan)
+
+        long_output = "x" * 300 + "IMPORTANT_ENDING"
+        ctx = ReplanContext(
+            original_query="task",
+            failed_step_notes={},
+            failed_step_outputs={1: long_output},
+            failed_tool_history={},
+            attempt_number=1,
+            max_attempts=2,
+        )
+
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
+            agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
+
+        prompt = agent._build_replan_prompt(steps_to_replan=[1], available_tools=[], context=ctx)
+
+        assert "IMPORTANT_ENDING" in prompt
+
+    def test_build_prompt_without_context_backward_compatible(self):
+        """Should work without context (backward compatible)"""
+        plan = Plan(steps=["S0", "S1"], dependencies={1: [0]})
+        plan.mark_step(0, step_status="completed")
+        TaskManager.set_plan("test_plan", plan)
+
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
+            agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
+
+        # No context param - should not raise
+        prompt = agent._build_replan_prompt(steps_to_replan=[1], available_tools=["tool_a"])
+
+        assert "S1" in prompt
+        assert "Original Task" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_replan_subgraph_accepts_context(self):
+        """replan_subgraph should accept optional context parameter"""
+        plan = Plan(steps=["S0", "S1"])
+        plan.mark_step(0, step_status="completed")
+        TaskManager.set_plan("test_plan", plan)
+
+        mock_result = MagicMock()
+        mock_result.output = (
+            '```json\n{"action": "redesign", "new_steps": ["New S1"], "new_dependencies": {}}\n```'
+        )
+
+        ctx = ReplanContext(
+            original_query="task",
+            failed_step_notes={},
+            failed_step_outputs={},
+            failed_tool_history={},
+            attempt_number=1,
+            max_attempts=2,
+        )
+
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
+            agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
+            agent.execute = AsyncMock(return_value=mock_result)
+
+        result = await agent.replan_subgraph(
+            steps_to_replan=[1], available_tools=["tool_a"], context=ctx
+        )
+
+        assert result.action == "redesign"
+        agent.execute.assert_called_once()

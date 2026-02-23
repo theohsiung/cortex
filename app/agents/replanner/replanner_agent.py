@@ -95,13 +95,19 @@ class ReplannerAgent(BaseAgent):
 
         super().__init__(agent=agent, tool_functions={}, plan_id=plan_id)
 
-    def _build_replan_prompt(self, steps_to_replan: list[int], available_tools: list[str]) -> str:
+    def _build_replan_prompt(
+        self,
+        steps_to_replan: list[int],
+        available_tools: list[str],
+        context: ReplanContext | None = None,
+    ) -> str:
         """
         Build the prompt for replanning.
 
         Args:
             steps_to_replan: List of step indices to redesign
             available_tools: List of available tool names
+            context: Optional failure context for richer prompts
 
         Returns:
             Complete prompt for the replanner
@@ -127,6 +133,7 @@ class ReplannerAgent(BaseAgent):
             steps_to_replan=steps_with_desc,
             available_tools=available_tools,
             available_intents=self.available_intents,
+            context=context,
         )
 
     def _parse_replan_response(self, response: str) -> ReplanResult | None:
@@ -176,7 +183,10 @@ class ReplannerAgent(BaseAgent):
             return None
 
     async def replan_subgraph(
-        self, steps_to_replan: list[int], available_tools: list[str]
+        self,
+        steps_to_replan: list[int],
+        available_tools: list[str],
+        context: ReplanContext | None = None,
     ) -> ReplanResult:
         """
         Redesign the specified steps.
@@ -184,12 +194,13 @@ class ReplannerAgent(BaseAgent):
         Args:
             steps_to_replan: List of step indices to redesign
             available_tools: List of available tool names
+            context: Optional failure context for richer prompts
 
         Returns:
             ReplanResult with new steps and dependencies
         """
         max_parse_retries = 3
-        prompt = self._build_replan_prompt(steps_to_replan, available_tools)
+        prompt = self._build_replan_prompt(steps_to_replan, available_tools, context=context)
 
         for attempt in range(max_parse_retries):
             result = await self.execute(prompt)
