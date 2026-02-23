@@ -50,6 +50,8 @@ class ToolManager:
     def _load_tool_prompts_from_dir(self) -> None:
         """從 tools/prompts dir 載入所有 tool 的 prompt"""
         dir_path = Path(__file__).parent / "prompts"
+        if not dir_path.exists():
+            return
         for file in sorted(os.listdir(dir_path)):
             if not file.endswith(".md"):
                 continue

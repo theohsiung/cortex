@@ -34,7 +34,6 @@ def zip_extractor(file_path: str, extract_to: Optional[str] = None) -> str:
 
         extracted_paths = []
         with zipfile.ZipFile(file_path, "r") as zip_ref:
-            # Safe extraction: avoid .. path traversal attacks
             zip_ref.extractall(extract_dir)
 
             # Get file list and assemble absolute paths

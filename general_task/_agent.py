@@ -30,14 +30,6 @@ from .tools import tool_manager
 agent_dir = Path(__file__).parent
 load_dotenv(agent_dir / ".env")
 
-# 從環境變數初始化 config
-agent_config.api_base = os.getenv("API_BASE")
-agent_config.api_key = os.getenv("API_KEY")
-agent_config.model_name = os.getenv("MODEL_NAME")
-_output_dir_env = os.getenv("OUTPUT_DIR")
-if _output_dir_env:
-    agent_config.output_dir = _output_dir_env
-
 
 class GeneralTaskFlow(BaseLlmFlow):
     """Custom flow for General Task Agent."""
@@ -83,6 +75,19 @@ def create_general_task_agent(
         api_key: 覆蓋 .env 中的 API_KEY
         output_dir: 輸出目錄，用於儲存下載的檔案、Python 執行輸出等
     """
+    # Initialize from env vars (only if not already set by previous call)
+    if agent_config.api_base is None:
+        agent_config.api_base = os.getenv("API_BASE")
+    if agent_config.api_key is None:
+        agent_config.api_key = os.getenv("API_KEY")
+    if agent_config.model_name is None:
+        agent_config.model_name = os.getenv("MODEL_NAME")
+    if agent_config.output_dir == "/tmp/general_task_output":
+        _env_output_dir = os.getenv("OUTPUT_DIR")
+        if _env_output_dir:
+            agent_config.output_dir = _env_output_dir
+
+    # Apply explicit overrides
     if model_name:
         agent_config.model_name = model_name
     if api_base:

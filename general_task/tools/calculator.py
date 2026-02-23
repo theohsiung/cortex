@@ -13,7 +13,7 @@ def calculator(expression: str) -> str:
     Wraps expression in print() statement for evaluation.
     """
     expression = expression.strip()
-    code = f"result = {expression}\nprint(f'Result: {expression} = {{result}}')"
+    code = f"result = {expression}\nprint('Result: ' + repr(result))"
     return python_executor(code)
 
 

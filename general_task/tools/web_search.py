@@ -101,7 +101,7 @@ def _fetch_page_text(url: str, max_length: int = 5000) -> str:
         return ""
 
 
-def web_search(query: str, engine: str = "duckduckgo", max_results: int = 5) -> str:
+def web_search(query: str, max_results: int = 5) -> str:
     """Search the web using DuckDuckGo.
 
     Returns: Title + Snippet for each result.

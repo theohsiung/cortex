@@ -54,7 +54,8 @@ class SystemPrompt:
 
 
 def build_system_prompt(readonly_context: ReadonlyContext) -> str:
-    """Build the system prompt for the General Task Agent."""
+    # readonly_context is required by the ADK instruction callable interface
+    # but not used here since this prompt is statically constructed.
     system_prompt = SystemPrompt()
     sections = [
         system_prompt.cli_prompt,
