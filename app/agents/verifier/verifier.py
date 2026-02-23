@@ -47,6 +47,7 @@ class Verifier:
         self,
         step_description: str,
         executor_output: str,
+        tool_call_count: int = 0,
     ) -> VerifyResult:
         """
         Evaluate executor output using LLM to determine success/failure.
@@ -54,6 +55,7 @@ class Verifier:
         Args:
             step_description: What the step was supposed to do
             executor_output: Raw output from executor
+            tool_call_count: Number of tool calls completed during execution
 
         Returns:
             VerifyResult with passed/failed and notes
@@ -61,38 +63,58 @@ class Verifier:
         if self.model is None:
             return VerifyResult(passed=True, notes=f"[SUCCESS]: {executor_output[:100]}")
 
-        return await self._llm_evaluate(step_description, executor_output)
+        return await self._llm_evaluate(step_description, executor_output, tool_call_count)
 
     def build_evaluation_prompt(
         self,
         step_description: str,
         executor_output: str,
+        tool_call_count: int = 0,
     ) -> str:
         """Build the evaluation prompt for LLM-based verification."""
-        return f"""Evaluate whether the following executor output addresses the assigned step.
+        if tool_call_count > 0:
+            tool_context = (
+                f"\nThe executor completed {tool_call_count} tool call(s) during this step.\n"
+            )
+            criteria = (
+                "- [SUCCESS] if the output fulfills the step's stated goal.\n"
+                f"  The executor performed work ({tool_call_count} tool call(s)).\n"
+                "  Partial results that clearly address the goal count as success.\n"
+                "- [FAIL] if the step's goal was NOT achieved, even if some useful data\n"
+                "  was found along the way. In the [FAIL] message, clearly state:\n"
+                "  (a) what WAS accomplished/found, and (b) what is still MISSING."
+            )
+        else:
+            tool_context = ""
+            criteria = (
+                "- [SUCCESS] if the output is relevant and provides a meaningful response,\n"
+                "  even without tool calls.\n"
+                "- [FAIL] only if the output is empty, completely irrelevant, or contains\n"
+                "  a clear error."
+            )
+
+        return f"""Evaluate whether the following executor output achieves the step's stated goal.
 
 Step: {step_description}
-
+{tool_context}
 Executor output:
 {executor_output}
 
 Evaluation criteria:
-- [SUCCESS] if the output is relevant and provides a meaningful response,
-  even without tool calls.
-- [FAIL] only if the output is empty, completely irrelevant, or contains
-  a clear error.
+{criteria}
 
 Not all steps require tool calls. Analysis, reasoning, and text responses are valid outputs.
 
 Respond with EXACTLY one of:
 - [SUCCESS]: <brief description of what was accomplished>
-- [FAIL]: <reason why the step was not completed>
+- [FAIL]: <what was found> | <what is still missing>
 """
 
     async def _llm_evaluate(
         self,
         step_description: str,
         executor_output: str,
+        tool_call_count: int = 0,
     ) -> VerifyResult:
         """
         Use LLM to evaluate whether executor output fulfills the step.
@@ -102,7 +124,7 @@ Respond with EXACTLY one of:
         from google.adk.sessions import InMemorySessionService
         from google.genai.types import Content, Part
 
-        prompt = self.build_evaluation_prompt(step_description, executor_output)
+        prompt = self.build_evaluation_prompt(step_description, executor_output, tool_call_count)
         assert self.model is not None
         agent = LlmAgent(
             name="verifier",
