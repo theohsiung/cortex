@@ -9,7 +9,7 @@ from typing import Any, Callable, Union
 
 from app.agents.executor.executor_agent import ExecutorAgent
 from app.agents.planner.planner_agent import PlannerAgent
-from app.agents.replanner.replanner_agent import ReplannerAgent
+from app.agents.replanner.replanner_agent import ReplanContext, ReplannerAgent
 from app.agents.verifier.verifier import Verifier
 from app.config import CortexConfig
 from app.sandbox.sandbox_manager import SandboxManager
@@ -76,7 +76,8 @@ class Cortex:
 
     def _get_available_intents(self) -> dict[str, str]:
         """Build available intents dict from executors + default."""
-        intents = {"default": "General purpose tasks"}
+        # intents = {"default": "General purpose tasks"}
+        intents = {}  # for AS testing senerio
         for entry in self.config.executors:
             intents[entry.intent] = entry.description
         return intents
@@ -124,7 +125,8 @@ class Cortex:
             # Create plan
             logger.info("=== PLANNING PHASE ===")
             logger.info(
-                "Creating plan for query: %s", query[:100] + "..." if len(query) > 100 else query
+                "Creating plan for query: %s",
+                query[:100] + "..." if len(query) > 100 else query,
             )
             planner = PlannerAgent(
                 plan_id=plan_id,
@@ -139,7 +141,11 @@ class Cortex:
             # Emit initial plan structure
             await emit(
                 "plan_updated",
-                {"plan": plan.format_dag(), "steps": plan.steps, "dependencies": plan.dependencies},
+                {
+                    "plan": plan.format_dag(),
+                    "steps": plan.steps,
+                    "dependencies": plan.dependencies,
+                },
             )
 
             for i, step in enumerate(plan.steps):
@@ -153,13 +159,16 @@ class Cortex:
                 available_intents=self._get_available_intents(),
             )
 
-            # Get available tool names for replanner
+            # Get available tool names for replanner (sandbox tools + all executor tools)
             available_tools = [
                 t.__name__ if callable(t) else str(t) for t in executor_sandbox_tools
             ]
+            for entry in self.config.executors:
+                available_tools.extend(entry.tool_names)
 
             logger.info("=== EXECUTION PHASE ===")
             step_outputs: dict[int, str] = {}
+            failed_outputs: dict[int, str] = {}
             semaphore = asyncio.Semaphore(self.config.tuning.max_concurrent_steps)
 
             async def execute_with_limit(
@@ -189,13 +198,27 @@ class Cortex:
                             factory = self._get_executor_factory(intent)
                             if factory:
                                 # External executor from executors config
-                                from app.agents.base.base_agent import BaseAgent as _BaseAgent
+                                from app.agents.base.base_agent import (
+                                    BaseAgent as _BaseAgent,
+                                )
                                 from app.agents.base.base_agent import ExecutionContext
 
                                 agent = factory()
                                 executor = _BaseAgent(agent=agent, plan_id=plan_id)
                                 exec_context = ExecutionContext(step_index=step_idx)
-                                query_text = f"Execute step {step_idx}: {step_desc}\n\nContext: {full_context}"
+                                # Only allow submit_final_answer if this step explicitly requires it
+                                submit_note = (
+                                    ""
+                                    if any(
+                                        kw in step_desc.lower() for kw in ["submit", "final answer"]
+                                    )
+                                    else "\nDo NOT call submit_final_answer — it is reserved for the final submission step only.\n"
+                                )
+                                query_text = (
+                                    f"Execute ONLY this step (do not attempt subsequent steps or solve the full task):{submit_note}\n"
+                                    f"Step {step_idx}: {step_desc}\n\n"
+                                    f"Overall task context (for reference only):\n{full_context}"
+                                )
                                 result = await executor.execute(
                                     query_text, exec_context=exec_context
                                 )
@@ -236,7 +259,11 @@ class Cortex:
                         plan.mark_step(step_idx, step_status="blocked", step_notes=str(result))
                         await emit(
                             "step_status",
-                            {"step_idx": step_idx, "status": "blocked", "error": str(result)},
+                            {
+                                "step_idx": step_idx,
+                                "status": "blocked",
+                                "error": str(result),
+                            },
                         )
                     else:
                         # Finalize step and verify tool calls
@@ -251,18 +278,33 @@ class Cortex:
                                 if step_idx < len(plan.steps)
                                 else f"Step {step_idx}"
                             )
-                            verify_result = await verifier.evaluate_output(step_desc, result)
+                            tool_calls = plan.step_tool_history.get(step_idx, [])
+                            completed_calls = sum(
+                                1 for c in tool_calls if c.get("status") == "success"
+                            )
+                            verify_result = await verifier.evaluate_output(
+                                step_desc, result, tool_call_count=completed_calls
+                            )
 
                         if verify_result.passed:
                             # Verification passed - mark completed
-                            logger.info("✓ Step %d verified - all tool calls confirmed", step_idx)
+                            logger.info(
+                                "✓ Step %d verified - all tool calls confirmed",
+                                step_idx,
+                            )
                             step_outputs[step_idx] = result
                             plan.mark_step(
-                                step_idx, step_status="completed", step_notes=verify_result.notes
+                                step_idx,
+                                step_status="completed",
+                                step_notes=verify_result.notes,
                             )
                             await emit(
                                 "step_status",
-                                {"step_idx": step_idx, "status": "completed", "output": result},
+                                {
+                                    "step_idx": step_idx,
+                                    "status": "completed",
+                                    "output": result,
+                                },
                             )
                         else:
                             # Verification failed - check reason
@@ -283,8 +325,23 @@ class Cortex:
                                 )
                                 for call in failed_calls:
                                     logger.warning(
-                                        "  - Pending: %s(%s)", call["tool"], call.get("args", {})
+                                        "  - Pending: %s(%s)",
+                                        call["tool"],
+                                        call.get("args", {}),
                                     )
+                            else:
+                                logger.warning(
+                                    "⚠ Step %d verification FAILED - evaluator: %s",
+                                    step_idx,
+                                    verify_result.notes,
+                                )
+
+                            # Save failure context for replanner
+                            plan.mark_step(
+                                step_idx,
+                                step_notes=verify_result.notes,
+                            )
+                            failed_outputs[step_idx] = result
 
                             attempts = plan.replan_attempts.get(step_idx, 0)
                             max_replan = self.config.tuning.max_replan_attempts
@@ -330,8 +387,28 @@ class Cortex:
                                     },
                                 )
 
+                                replan_ctx = ReplanContext(
+                                    original_query=query,
+                                    failed_step_notes={
+                                        idx: plan.step_notes.get(plan.steps[idx], "")
+                                        for idx in steps_to_replan
+                                        if idx < len(plan.steps)
+                                    },
+                                    failed_step_outputs={
+                                        idx: failed_outputs.get(idx, "") for idx in steps_to_replan
+                                    },
+                                    failed_tool_history={
+                                        idx: plan.step_tool_history.get(idx, [])
+                                        for idx in steps_to_replan
+                                    },
+                                    attempt_number=attempts + 1,
+                                    max_attempts=max_replan,
+                                )
+
                                 replan_result = await replanner.replan_subgraph(
-                                    steps_to_replan=steps_to_replan, available_tools=available_tools
+                                    steps_to_replan=steps_to_replan,
+                                    available_tools=available_tools,
+                                    context=replan_ctx,
                                 )
                                 plan.replan_attempts[step_idx] = attempts + 1
 
@@ -366,7 +443,10 @@ class Cortex:
                                         insert_after=insert_after,
                                         new_intents=replan_result.new_intents,
                                     )
-                                    logger.info("  After dependencies: %s", dict(plan.dependencies))
+                                    logger.info(
+                                        "  After dependencies: %s",
+                                        dict(plan.dependencies),
+                                    )
 
                                     # Emit updated plan
                                     await emit(
@@ -380,10 +460,19 @@ class Cortex:
                                 else:
                                     # Replanner gave up
                                     logger.error("✗ Replanner gave up on step %d", step_idx)
+                                    existing_notes = plan.step_notes.get(
+                                        plan.steps[step_idx] if step_idx < len(plan.steps) else "",
+                                        "",
+                                    )
+                                    gave_up_notes = (
+                                        f"{existing_notes} | Replanner gave up"
+                                        if existing_notes
+                                        else "Replanner gave up"
+                                    )
                                     plan.mark_step(
                                         step_idx,
                                         step_status="blocked",
-                                        step_notes="Replanner gave up",
+                                        step_notes=gave_up_notes,
                                     )
                                     await emit(
                                         "step_status",

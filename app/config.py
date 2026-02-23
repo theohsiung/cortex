@@ -79,6 +79,10 @@ class ExecutorEntry(BaseModel):
     factory_module: str = Field(description="Dotted module path to the factory")
     factory_function: str = "create_agent"
     is_default: bool = False
+    tool_names: list[str] = Field(
+        default_factory=list,
+        description="Tool names available to this executor, used by the replanner",
+    )
 
     def get_factory(self) -> Callable[[], Any]:
         """Import the factory module and return the factory callable (without calling it)."""

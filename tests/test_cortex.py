@@ -157,17 +157,16 @@ class TestCortexExecutors:
                 )
             )
             intents = cortex._get_available_intents()
-            assert {"generate", "review", "default"} == set(intents.keys())
+            assert {"generate", "review"} == set(intents.keys())
             assert intents["generate"] == "Gen code"
-            assert "default" in intents  # built-in
         finally:
             del sys.modules["_test_exec_intents"]
 
-    def test_available_intents_default_only(self):
-        """Should have only 'default' when no executors provided"""
+    def test_available_intents_empty_when_no_executors(self):
+        """Should return empty dict when no executors provided"""
         cortex = Cortex(make_config())
         intents = cortex._get_available_intents()
-        assert set(intents.keys()) == {"default"}
+        assert intents == {}
 
 
 class TestCortexSandbox:
@@ -813,7 +812,7 @@ class TestCortexVerificationAndReplan:
 
         replan_calls = []
 
-        async def capture_replan(steps_to_replan, available_tools):
+        async def capture_replan(steps_to_replan, available_tools, **kwargs):
             replan_calls.append(steps_to_replan)
             return ReplanResult(
                 action="redesign",
@@ -887,7 +886,7 @@ class TestCortexVerificationAndReplan:
 
         replan_calls = []
 
-        async def capture_replan(steps_to_replan, available_tools):
+        async def capture_replan(steps_to_replan, available_tools, **kwargs):
             replan_calls.append(sorted(steps_to_replan))
             return ReplanResult(action="redesign", new_steps=["New Step"], new_dependencies={})
 
@@ -1066,3 +1065,146 @@ class TestCortexIntentDispatch:
         mock_verifier.evaluate_output.assert_called()
         # Step should NOT be completed (evaluate_output failed)
         assert plan.step_statuses["Generate code"] != "completed"
+
+
+class TestCortexReplanContext:
+    """Tests for ReplanContext construction on failure"""
+
+    def setup_method(self):
+        TaskManager._plans.clear()
+
+    @pytest.mark.asyncio
+    @patch.object(
+        Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result"
+    )
+    @patch("cortex.ReplannerAgent")
+    @patch("cortex.Verifier")
+    @patch("cortex.ExecutorAgent")
+    @patch("cortex.PlannerAgent")
+    @patch("cortex.Plan")
+    async def test_failure_saves_notes_to_plan(
+        self,
+        mock_plan_cls,
+        mock_planner_cls,
+        mock_executor_cls,
+        mock_verifier_cls,
+        mock_replanner_cls,
+        mock_aggregate,
+    ):
+        """Verification failure should save verifier notes to plan"""
+        plan = Plan(title="Test", steps=["Step A"], dependencies={})
+        mock_plan_cls.return_value = plan
+
+        mock_planner = AsyncMock()
+        mock_planner.create_plan = AsyncMock(return_value=None)
+        mock_planner_cls.return_value = mock_planner
+
+        mock_executor = AsyncMock()
+        mock_executor.execute_step = AsyncMock(return_value="Found geo coords but no ZIP")
+        mock_executor_cls.return_value = mock_executor
+
+        # Verifier passes mechanical check but fails LLM evaluation
+        mock_verifier = MagicMock()
+        mock_verifier.verify_step = MagicMock(return_value=VerifyResult(passed=True, notes=""))
+        mock_verifier.evaluate_output = AsyncMock(
+            return_value=VerifyResult(
+                passed=False,
+                notes="[FAIL]: Found geo coords | No ZIP code field",
+            )
+        )
+        mock_verifier.get_failed_calls = MagicMock(return_value=[])
+        mock_verifier.get_failure_reason = MagicMock(return_value="")
+        mock_verifier_cls.return_value = mock_verifier
+
+        from app.agents.replanner.replanner_agent import ReplanResult
+
+        mock_replanner = AsyncMock()
+        mock_replanner.replan_subgraph = AsyncMock(
+            return_value=ReplanResult(action="give_up", new_steps=[], new_dependencies={})
+        )
+        mock_replanner_cls.return_value = mock_replanner
+
+        cortex = Cortex(make_config())
+        await cortex.execute("Find ZIP codes")
+
+        # Notes should be saved to plan even on failure
+        assert "[FAIL]" in plan.step_notes["Step A"]
+        assert "geo coords" in plan.step_notes["Step A"]
+
+    @pytest.mark.asyncio
+    @patch.object(
+        Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result"
+    )
+    @patch("cortex.ReplannerAgent")
+    @patch("cortex.Verifier")
+    @patch("cortex.ExecutorAgent")
+    @patch("cortex.PlannerAgent")
+    @patch("cortex.Plan")
+    async def test_replan_receives_context(
+        self,
+        mock_plan_cls,
+        mock_planner_cls,
+        mock_executor_cls,
+        mock_verifier_cls,
+        mock_replanner_cls,
+        mock_aggregate,
+    ):
+        """Replanner should receive ReplanContext with failure details"""
+        plan = Plan(title="Test", steps=["Step A", "Step B"], dependencies={1: [0]})
+        mock_plan_cls.return_value = plan
+
+        mock_planner = AsyncMock()
+        mock_planner.create_plan = AsyncMock(return_value=None)
+        mock_planner_cls.return_value = mock_planner
+
+        mock_executor = AsyncMock()
+        mock_executor.execute_step = AsyncMock(return_value="Some output")
+        mock_executor_cls.return_value = mock_executor
+
+        # Fail on first evaluate_output call, pass on subsequent ones
+        eval_count = 0
+
+        async def eval_side_effect(step_desc, output, tool_call_count=0):
+            nonlocal eval_count
+            eval_count += 1
+            if eval_count == 1:
+                return VerifyResult(passed=False, notes="[FAIL]: goal not met")
+            return VerifyResult(passed=True, notes="[SUCCESS]: done")
+
+        mock_verifier = MagicMock()
+        mock_verifier.verify_step = MagicMock(return_value=VerifyResult(passed=True, notes=""))
+        mock_verifier.evaluate_output = AsyncMock(side_effect=eval_side_effect)
+        mock_verifier.get_failed_calls = MagicMock(return_value=[])
+        mock_verifier.get_failure_reason = MagicMock(return_value="")
+        mock_verifier_cls.return_value = mock_verifier
+
+        from app.agents.replanner.replanner_agent import ReplanContext, ReplanResult
+
+        captured_kwargs = []
+
+        async def capture_replan(**kwargs):
+            captured_kwargs.append(kwargs)
+            return ReplanResult(action="redesign", new_steps=["New Step"], new_dependencies={})
+
+        mock_replanner = AsyncMock()
+        mock_replanner.replan_subgraph = AsyncMock(side_effect=capture_replan)
+        mock_replanner_cls.return_value = mock_replanner
+
+        cortex = Cortex(make_config())
+        await cortex.execute("Find ZIP codes")
+
+        # replan_subgraph should have been called with context keyword argument
+        mock_replanner.replan_subgraph.assert_called()
+        call_kwargs = mock_replanner.replan_subgraph.call_args
+        # Check 'context' was passed (could be positional or keyword)
+        assert call_kwargs is not None
+        # The context should be a ReplanContext instance
+        if call_kwargs.kwargs.get("context"):
+            ctx = call_kwargs.kwargs["context"]
+        else:
+            # might be the 3rd positional arg
+            ctx = call_kwargs.args[2] if len(call_kwargs.args) > 2 else None
+        assert ctx is not None
+        assert isinstance(ctx, ReplanContext)
+        assert ctx.original_query == "Find ZIP codes"
+        assert ctx.attempt_number == 1
