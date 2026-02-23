@@ -31,6 +31,18 @@ class ReplanResult:
     new_intents: dict[int, str] = field(default_factory=dict)
 
 
+@dataclass
+class ReplanContext:
+    """Context about the failure, passed from Cortex to the replanner."""
+
+    original_query: str
+    failed_step_notes: dict[int, str]
+    failed_step_outputs: dict[int, str]
+    failed_tool_history: dict[int, list[dict]]
+    attempt_number: int
+    max_attempts: int
+
+
 class ReplannerAgent(BaseAgent):
     """
     Agent responsible for redesigning failed steps and their downstream dependencies.
@@ -117,7 +129,7 @@ class ReplannerAgent(BaseAgent):
             available_intents=self.available_intents,
         )
 
-    def _parse_replan_response(self, response: str) -> ReplanResult:
+    def _parse_replan_response(self, response: str) -> ReplanResult | None:
         """
         Parse the LLM response to extract ReplanResult.
 
@@ -125,7 +137,8 @@ class ReplannerAgent(BaseAgent):
             response: Raw LLM response text
 
         Returns:
-            ReplanResult extracted from response
+            ReplanResult extracted from response, or None if parsing failed
+            (caller should retry on None; give_up is an intentional LLM decision)
         """
         # Try to extract JSON from code block
         json_match = re.search(r"```json\s*(.*?)\s*```", response, re.DOTALL)
@@ -137,8 +150,8 @@ class ReplannerAgent(BaseAgent):
             if json_match:
                 json_str = json_match.group(0)
             else:
-                # Could not find valid JSON
-                return ReplanResult(action="give_up", new_steps=[], new_dependencies={})
+                # Could not find valid JSON - parse failure, caller should retry
+                return None
 
         try:
             data = json.loads(json_str)
@@ -159,7 +172,8 @@ class ReplannerAgent(BaseAgent):
                 new_intents=new_intents,
             )
         except (json.JSONDecodeError, ValueError, TypeError):
-            return ReplanResult(action="give_up", new_steps=[], new_dependencies={})
+            # Parse failure - caller should retry
+            return None
 
     async def replan_subgraph(
         self, steps_to_replan: list[int], available_tools: list[str]
@@ -174,6 +188,21 @@ class ReplannerAgent(BaseAgent):
         Returns:
             ReplanResult with new steps and dependencies
         """
+        max_parse_retries = 3
         prompt = self._build_replan_prompt(steps_to_replan, available_tools)
-        result = await self.execute(prompt)
-        return self._parse_replan_response(result.output)
+
+        for attempt in range(max_parse_retries):
+            result = await self.execute(prompt)
+            parsed = self._parse_replan_response(result.output)
+            if parsed is not None:
+                return parsed
+            if attempt < max_parse_retries - 1:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "Replanner JSON parse failed (attempt %d/%d), retrying...",
+                    attempt + 1,
+                    max_parse_retries,
+                )
+
+        return ReplanResult(action="give_up", new_steps=[], new_dependencies={})

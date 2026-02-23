@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.agents.replanner.replanner_agent import ReplannerAgent, ReplanResult
+from app.agents.replanner.replanner_agent import ReplanContext, ReplannerAgent, ReplanResult
 from app.task.plan import Plan
 from app.task.task_manager import TaskManager
 
@@ -28,6 +28,39 @@ class TestReplanResult:
 
         assert result.action == "give_up"
         assert result.new_steps == []
+
+
+class TestReplanContext:
+    """Tests for ReplanContext dataclass"""
+
+    def test_replan_context_creation(self):
+        """Should create ReplanContext with all fields"""
+        ctx = ReplanContext(
+            original_query="Find the ZIP code for clownfish sightings",
+            failed_step_notes={3: "[FAIL]: Found geo coords | No ZIP code field"},
+            failed_step_outputs={3: "Downloaded 1 record from USGS..."},
+            failed_tool_history={3: [{"tool": "download_file", "status": "success"}]},
+            attempt_number=1,
+            max_attempts=2,
+        )
+        assert ctx.original_query == "Find the ZIP code for clownfish sightings"
+        assert ctx.attempt_number == 1
+        assert ctx.max_attempts == 2
+        assert 3 in ctx.failed_step_notes
+        assert 3 in ctx.failed_step_outputs
+        assert 3 in ctx.failed_tool_history
+
+    def test_replan_context_defaults_empty(self):
+        """Should work with empty dicts"""
+        ctx = ReplanContext(
+            original_query="task",
+            failed_step_notes={},
+            failed_step_outputs={},
+            failed_tool_history={},
+            attempt_number=1,
+            max_attempts=2,
+        )
+        assert ctx.failed_step_notes == {}
 
 
 class TestReplannerAgentConstants:
@@ -192,7 +225,7 @@ class TestReplannerAgentParseResponse:
         assert result.new_steps == []
 
     def test_parse_response_handles_malformed_json(self):
-        """Should return give_up on malformed response"""
+        """Should return None on malformed response (caller retries)"""
         plan = Plan(steps=["A"])
         TaskManager.set_plan("test_plan", plan)
 
@@ -203,7 +236,7 @@ class TestReplannerAgentParseResponse:
 
         result = agent._parse_replan_response(response)
 
-        assert result.action == "give_up"
+        assert result is None
 
 
 class TestReplannerAgentReplanSubgraph:
