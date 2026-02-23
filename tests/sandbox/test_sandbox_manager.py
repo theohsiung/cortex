@@ -10,12 +10,11 @@ import pytest
 
 from app.config import MCPSse, MCPStdio, SandboxConfig
 
-# Mock google.adk to avoid import issues in tests
-mock_adk_tools = MagicMock()
-sys.modules["google.adk.tools"] = mock_adk_tools
-sys.modules["google.adk.tools.mcp_tool"] = mock_adk_tools
-sys.modules["google.adk.tools.mcp_tool.mcp_toolset"] = mock_adk_tools
-sys.modules["google.adk.tools.mcp_tool.mcp_session_manager"] = mock_adk_tools
+# Ensure google.adk.tools submodules are mocked (conftest handles google.adk.tools itself)
+_mock_mcp_tool = MagicMock()
+sys.modules.setdefault("google.adk.tools.mcp_tool", _mock_mcp_tool)
+sys.modules.setdefault("google.adk.tools.mcp_tool.mcp_toolset", _mock_mcp_tool)
+sys.modules.setdefault("google.adk.tools.mcp_tool.mcp_session_manager", _mock_mcp_tool)
 
 
 class TestSandboxManager:
