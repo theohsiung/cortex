@@ -4,7 +4,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.agents.replanner.replanner_agent import ReplanContext, ReplannerAgent, ReplanResult
+from app.agents.replanner.replanner_agent import (
+    ReplanContext,
+    ReplannerAgent,
+    ReplanResult,
+    RetryStepInfo,
+)
 from app.task.plan import Plan
 from app.task.task_manager import TaskManager
 
@@ -15,19 +20,42 @@ class TestReplanResult:
     def test_replan_result_redesign(self):
         """Should create ReplanResult with redesign action"""
         result = ReplanResult(
-            action="redesign", new_steps=["Step A", "Step B"], new_dependencies={1: [0]}
+            action="redesign", new_steps={0: "Step A", 1: "Step B"}, new_dependencies={1: [0]}
         )
 
         assert result.action == "redesign"
-        assert result.new_steps == ["Step A", "Step B"]
+        assert result.new_steps == {0: "Step A", 1: "Step B"}
         assert result.new_dependencies == {1: [0]}
 
     def test_replan_result_give_up(self):
         """Should create ReplanResult with give_up action"""
-        result = ReplanResult(action="give_up", new_steps=[], new_dependencies={})
+        result = ReplanResult(action="give_up", new_steps={}, new_dependencies={})
 
         assert result.action == "give_up"
-        assert result.new_steps == []
+        assert result.new_steps == {}
+
+    def test_replan_result_with_retry_step(self):
+        """ReplanResult should include retry_step info"""
+        result = ReplanResult(
+            action="redesign",
+            retry_step=RetryStepInfo(description="Try different approach", intent="research"),
+            new_steps={5: "Downstream step"},
+            new_dependencies={5: [3]},
+        )
+
+        assert result.retry_step is not None
+        assert result.retry_step.description == "Try different approach"
+        assert result.retry_step.intent == "research"
+
+    def test_replan_result_retry_step_defaults_none(self):
+        """ReplanResult.retry_step should default to None"""
+        result = ReplanResult(
+            action="redesign",
+            new_steps={5: "Step"},
+            new_dependencies={},
+        )
+
+        assert result.retry_step is None
 
 
 class TestReplanContext:
@@ -187,8 +215,12 @@ class TestReplannerAgentParseResponse:
         ```json
         {
             "action": "redesign",
-            "new_steps": ["Build API framework", "Implement endpoints", "Write tests"],
-            "new_dependencies": {"1": [0], "2": [1]}
+            "new_steps": {
+                "1": "Build API framework",
+                "2": "Implement endpoints",
+                "3": "Write tests"
+            },
+            "new_dependencies": {"2": [1], "3": [2]}
         }
         ```
         """
@@ -197,7 +229,7 @@ class TestReplannerAgentParseResponse:
 
         assert result.action == "redesign"
         assert len(result.new_steps) == 3
-        assert result.new_dependencies == {1: [0], 2: [1]}
+        assert result.new_dependencies == {2: [1], 3: [2]}
 
     def test_parse_give_up_response(self):
         """Should parse give_up response"""
@@ -213,7 +245,7 @@ class TestReplannerAgentParseResponse:
         ```json
         {
             "action": "give_up",
-            "new_steps": [],
+            "new_steps": {},
             "new_dependencies": {}
         }
         ```
@@ -222,7 +254,7 @@ class TestReplannerAgentParseResponse:
         result = agent._parse_replan_response(response)
 
         assert result.action == "give_up"
-        assert result.new_steps == []
+        assert result.new_steps == {}
 
     def test_parse_response_handles_malformed_json(self):
         """Should return None on malformed response (caller retries)"""
@@ -237,6 +269,55 @@ class TestReplannerAgentParseResponse:
         result = agent._parse_replan_response(response)
 
         assert result is None
+
+    def test_parse_response_extracts_retry_step(self):
+        """Should extract retry_step from response"""
+        plan = Plan(steps=["A"])
+        TaskManager.set_plan("test_plan", plan)
+
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
+            agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
+
+        response = """```json
+    {
+        "action": "redesign",
+        "retry_step": {
+            "description": "Use local file instead of web search",
+            "intent": "research"
+        },
+        "new_steps": {"3": "Process the local data"},
+        "new_dependencies": {"3": [2]},
+        "new_intents": {"3": "generate"}
+    }
+    ```"""
+
+        result = agent._parse_replan_response(response)
+
+        assert result is not None
+        assert result.retry_step is not None
+        assert result.retry_step.description == "Use local file instead of web search"
+        assert result.retry_step.intent == "research"
+
+    def test_parse_response_missing_retry_step(self):
+        """Should handle missing retry_step gracefully"""
+        plan = Plan(steps=["A"])
+        TaskManager.set_plan("test_plan", plan)
+
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
+            agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
+
+        response = """```json
+    {
+        "action": "redesign",
+        "new_steps": {"3": "New step"},
+        "new_dependencies": {}
+    }
+    ```"""
+
+        result = agent._parse_replan_response(response)
+
+        assert result is not None
+        assert result.retry_step is None
 
 
 class TestReplannerAgentReplanSubgraph:
@@ -258,7 +339,7 @@ class TestReplannerAgentReplanSubgraph:
         mock_result = MagicMock()
         mock_result.output = """
         ```json
-        {"action": "redesign", "new_steps": ["New S1"], "new_dependencies": {}}
+        {"action": "redesign", "new_steps": {"1": "New S1"}, "new_dependencies": {}}
         ```
         """
 
@@ -282,8 +363,8 @@ class TestReplannerAgentReplanSubgraph:
         ```json
         {
             "action": "redesign",
-            "new_steps": ["Step X", "Step Y"],
-            "new_dependencies": {"1": [0]}
+            "new_steps": {"2": "Step X", "3": "Step Y"},
+            "new_dependencies": {"3": [2]}
         }
         ```
         """
@@ -295,7 +376,7 @@ class TestReplannerAgentReplanSubgraph:
         result = await agent.replan_subgraph(steps_to_replan=[1], available_tools=[])
 
         assert isinstance(result, ReplanResult)
-        assert result.new_steps == ["Step X", "Step Y"]
+        assert result.new_steps == {2: "Step X", 3: "Step Y"}
 
 
 class TestReplannerIntents:
@@ -306,7 +387,7 @@ class TestReplannerIntents:
         """ReplanResult should include intents for new steps"""
         result = ReplanResult(
             action="redesign",
-            new_steps=["Gen code", "Review code"],
+            new_steps={0: "Gen code", 1: "Review code"},
             new_dependencies={1: [0]},
             new_intents={0: "generate", 1: "review"},
         )
@@ -315,7 +396,7 @@ class TestReplannerIntents:
 
     def test_replan_result_default_intents(self):
         """ReplanResult should default intents to empty dict"""
-        result = ReplanResult(action="redesign", new_steps=["Step A"], new_dependencies={})
+        result = ReplanResult(action="redesign", new_steps={0: "Step A"}, new_dependencies={})
         assert result.new_intents == {}
 
     def test_parse_response_extracts_intents(self):
@@ -329,13 +410,13 @@ class TestReplannerIntents:
         response = """```json
         {
             "action": "redesign",
-            "new_steps": ["Gen code", "Review"],
-            "new_dependencies": {"1": [0]},
-            "new_intents": {"0": "generate", "1": "review"}
+            "new_steps": {"1": "Gen code", "2": "Review"},
+            "new_dependencies": {"2": [1]},
+            "new_intents": {"1": "generate", "2": "review"}
         }
         ```"""
         result = replanner._parse_replan_response(response)
-        assert result.new_intents == {0: "generate", 1: "review"}
+        assert result.new_intents == {1: "generate", 2: "review"}
 
     def test_parse_response_missing_intents(self):
         """Should handle missing intents in JSON response"""
@@ -348,7 +429,7 @@ class TestReplannerIntents:
         response = """```json
         {
             "action": "redesign",
-            "new_steps": ["Step A"],
+            "new_steps": {"1": "Step A"},
             "new_dependencies": {}
         }
         ```"""
@@ -511,7 +592,9 @@ class TestReplannerWithContext:
 
         mock_result = MagicMock()
         mock_result.output = (
-            '```json\n{"action": "redesign", "new_steps": ["New S1"], "new_dependencies": {}}\n```'
+            '```json\n{"action": "redesign",'
+            ' "new_steps": {"1": "New S1"},'
+            ' "new_dependencies": {}}\n```'
         )
 
         ctx = ReplanContext(

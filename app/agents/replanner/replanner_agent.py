@@ -22,13 +22,22 @@ def _get_llm_agent():
 
 
 @dataclass
+class RetryStepInfo:
+    """Info for retrying the failed step with a new approach."""
+
+    description: str
+    intent: str
+
+
+@dataclass
 class ReplanResult:
     """Result from replanning operation."""
 
     action: str  # "redesign" | "give_up"
-    new_steps: list[str]
+    new_steps: dict[int, str]  # {3: "step A", 4: "step B"}
     new_dependencies: dict[int, list[int]]
     new_intents: dict[int, str] = field(default_factory=dict)
+    retry_step: RetryStepInfo | None = None
 
 
 @dataclass
@@ -113,24 +122,64 @@ class ReplannerAgent(BaseAgent):
             Complete prompt for the replanner
         """
         assert self.plan is not None
-        # Get completed steps
+
+        # Get completed steps info
         completed_indices = [
-            i
-            for i, step in enumerate(self.plan.steps)
-            if self.plan.step_statuses[step] == "completed"
+            i for i in self.plan.steps if self.plan.step_statuses[i] == "completed"
         ]
+
+        # Format completed DAG
+        completed_dag = self.plan.format_completed_dag()
 
         # Format completed steps tool history
         completed_tool_history = self.plan.format_tool_history(completed_indices)
 
-        # Get step descriptions for steps to replan
-        steps_with_desc = [
-            (idx, self.plan.steps[idx]) for idx in steps_to_replan if idx < len(self.plan.steps)
-        ]
+        # Build failed steps info
+        failed_lines = []
+        for idx in steps_to_replan:
+            if idx not in self.plan.steps:
+                continue
+            desc = self.plan.steps[idx]
+            failed_lines.append(f"### Step {idx}: {desc}")
+
+            if context:
+                failed_lines.append(f"Attempt: {context.attempt_number}/{context.max_attempts}")
+
+                notes = context.failed_step_notes.get(idx, "")
+                if notes:
+                    failed_lines.append(f"\nFailure reason:\n{notes}")
+
+                output = context.failed_step_outputs.get(idx, "")
+                if output:
+                    if len(output) > 500:
+                        output = "...[truncated]\n" + output[-500:]
+                    failed_lines.append(f"\nExecutor output (last 500 chars):\n{output}")
+
+                tool_history = context.failed_tool_history.get(idx, [])
+                if tool_history:
+                    failed_lines.append("\nTool calls:")
+                    for call in tool_history:
+                        tool = call.get("tool", "?")
+                        args = call.get("args", {})
+                        result = call.get("result", "")
+                        args_str = (
+                            ", ".join(f'{k}="{v}"' for k, v in args.items())
+                            if isinstance(args, dict)
+                            else str(args)
+                        )
+                        failed_lines.append(f"- {tool}({args_str}) -> {result}")
+
+            failed_lines.append("")
+        failed_steps_info = "\n".join(failed_lines)
+
+        # Next available ID
+        next_id = self.plan._next_id
 
         return build_replan_prompt(
+            completed_dag=completed_dag,
             completed_tool_history=completed_tool_history,
-            steps_to_replan=steps_with_desc,
+            failed_steps_info=failed_steps_info,
+            next_id=next_id,
             available_tools=available_tools,
             available_intents=self.available_intents,
             context=context,
@@ -152,8 +201,10 @@ class ReplannerAgent(BaseAgent):
         if json_match:
             json_str = json_match.group(1)
         else:
-            # Try to find raw JSON object
-            json_match = re.search(r'\{[^{}]*"action"[^{}]*\}', response, re.DOTALL)
+            # Try to find raw JSON object (supports nested braces)
+            json_match = re.search(
+                r'\{(?:[^{}]|\{[^{}]*\})*"action"(?:[^{}]|\{[^{}]*\})*\}', response, re.DOTALL
+            )
             if json_match:
                 json_str = json_match.group(0)
             else:
@@ -163,20 +214,39 @@ class ReplannerAgent(BaseAgent):
         try:
             data = json.loads(json_str)
             action = data.get("action", "give_up")
-            new_steps = data.get("new_steps", [])
-            raw_deps = data.get("new_dependencies", {})
 
-            # Convert string keys to int (JSON doesn't support int keys)
-            new_dependencies = {int(k): v for k, v in raw_deps.items()}
+            raw_steps = data.get("new_steps", {})
+            # Handle both dict and list formats
+            if isinstance(raw_steps, list):
+                # Legacy list format: convert to dict using plan's _next_id
+                next_id = self.plan._next_id if self.plan else 0
+                new_steps = {next_id + i: step for i, step in enumerate(raw_steps)}
+            elif isinstance(raw_steps, dict):
+                new_steps = {int(k): v for k, v in raw_steps.items()}
+            else:
+                new_steps = {}
+
+            raw_deps = data.get("new_dependencies", {})
+            new_dependencies = {int(k): [int(v) for v in vals] for k, vals in raw_deps.items()}
 
             raw_intents = data.get("new_intents", {})
             new_intents = {int(k): v for k, v in raw_intents.items()} if raw_intents else {}
+
+            # Parse retry_step
+            raw_retry = data.get("retry_step")
+            retry_step = None
+            if raw_retry and isinstance(raw_retry, dict):
+                retry_step = RetryStepInfo(
+                    description=raw_retry.get("description", ""),
+                    intent=raw_retry.get("intent", "default"),
+                )
 
             return ReplanResult(
                 action=action,
                 new_steps=new_steps,
                 new_dependencies=new_dependencies,
                 new_intents=new_intents,
+                retry_step=retry_step,
             )
         except (json.JSONDecodeError, ValueError, TypeError):
             # Parse failure - caller should retry
@@ -216,4 +286,4 @@ class ReplannerAgent(BaseAgent):
                     max_parse_retries,
                 )
 
-        return ReplanResult(action="give_up", new_steps=[], new_dependencies={})
+        return ReplanResult(action="give_up", new_steps={}, new_dependencies={})
