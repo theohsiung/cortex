@@ -25,7 +25,7 @@ config.toml
 
 # local files
 docs/
-scripts/
+scripts/*.log
 app/agents/coding_agent/
 tools.py
 note.txt
