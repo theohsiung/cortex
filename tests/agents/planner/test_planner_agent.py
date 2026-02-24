@@ -35,7 +35,7 @@ class TestPlannerAgent:
         # Verify the TaskManager plan was modified
         plan = TaskManager.get_plan("plan_1")
         assert plan.title == "Test Plan"
-        assert plan.steps == ["Step 1", "Step 2"]
+        assert plan.steps == {0: "Step 1", 1: "Step 2"}
 
     def test_plan_not_found_raises_error(self):
         """Should raise ValueError when plan_id not found"""

@@ -140,6 +140,8 @@ class PlanToolkit:
         intents: dict[int, str] | None = None,
     ) -> str:
         """Update existing plan."""
+        if steps is not None:
+            steps, intents = self._normalize_steps(steps, intents)
         normalized_intents = self._normalize_intents(intents) if intents else None
         self.plan.update(
             title=title, steps=steps, dependencies=dependencies, step_intents=normalized_intents

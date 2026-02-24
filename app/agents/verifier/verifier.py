@@ -28,8 +28,7 @@ class Verifier:
         Returns VerifyResult instead of bool.
         """
         # Check Notes for [FAIL] marker first
-        step = plan.steps[step_idx]
-        notes = plan.step_notes.get(step, "").strip()
+        notes = plan.step_notes.get(step_idx, "").strip()
         if notes.startswith("[FAIL]"):
             return VerifyResult(passed=False, notes=notes)
 
@@ -77,38 +76,40 @@ class Verifier:
                 f"\nThe executor completed {tool_call_count} tool call(s) during this step.\n"
             )
             criteria = (
-                "- [SUCCESS] if the output fulfills the step's stated goal.\n"
-                f"  The executor performed work ({tool_call_count} tool call(s)).\n"
-                "  Partial results that clearly address the goal count as success.\n"
-                "- [FAIL] if the step's goal was NOT achieved, even if some useful data\n"
-                "  was found along the way. In the [FAIL] message, clearly state:\n"
-                "  (a) what WAS accomplished/found, and (b) what is still MISSING."
+                "- [SUCCESS] if the executor performed actions relevant to the step's goal\n"
+                "  and produced a result. You are checking PROCESS, not judging the answer.\n"
+                "  If the executor queried the right source, used appropriate tools, and\n"
+                "  returned data — that is a success, regardless of result quantity or content.\n"
+                "- [FAIL] ONLY if:\n"
+                "  (a) the executor did not attempt the task (wrong tool, wrong target), OR\n"
+                "  (b) the output contains an explicit error or exception, OR\n"
+                "  (c) the output is empty with no usable data at all."
             )
         else:
             tool_context = ""
             criteria = (
-                "- [SUCCESS] if the output is relevant and provides a meaningful response,\n"
-                "  even without tool calls.\n"
+                "- [SUCCESS] if the executor produced a relevant response that addresses\n"
+                "  the step's goal. Analysis, reasoning, and text responses are valid.\n"
                 "- [FAIL] only if the output is empty, completely irrelevant, or contains\n"
                 "  a clear error."
             )
 
-        return f"""Evaluate whether the following executor output achieves the step's stated goal.
-
-Step: {step_description}
-{tool_context}
-Executor output:
-{executor_output}
-
-Evaluation criteria:
-{criteria}
-
-Not all steps require tool calls. Analysis, reasoning, and text responses are valid outputs.
-
-Respond with EXACTLY one of:
-- [SUCCESS]: <brief description of what was accomplished>
-- [FAIL]: <what was found> | <what is still missing>
-"""
+        return (
+            "You are a process verifier. Your job is to check whether the executor"
+            " performed the correct actions for this step"
+            " — NOT to judge the correctness or completeness of the answer.\n\n"
+            f"Step: {step_description}\n"
+            f"{tool_context}"
+            "Executor output:\n"
+            f"{executor_output}\n\n"
+            "Evaluation criteria:\n"
+            f"{criteria}\n\n"
+            "IMPORTANT: Do NOT evaluate the quality or completeness of the answer."
+            " If the executor did the right work and got a result, it passes.\n\n"
+            "Respond with EXACTLY one of:\n"
+            "- [SUCCESS]: <brief description of what the executor did>\n"
+            "- [FAIL]: <what went wrong with the executor's process>\n"
+        )
 
     async def _llm_evaluate(
         self,
@@ -129,7 +130,11 @@ Respond with EXACTLY one of:
         agent = LlmAgent(
             name="verifier",
             model=self.model,
-            instruction="You evaluate whether task outputs meet their requirements. Be concise.",
+            instruction=(
+                "You are a process verifier. Check whether the executor"
+                " performed the correct actions"
+                " — not whether the answer is correct. Be concise."
+            ),
         )
 
         session_service = InMemorySessionService()
@@ -166,8 +171,7 @@ Respond with EXACTLY one of:
 
     def get_failure_reason(self, plan: Plan, step_idx: int) -> str:
         """Get the failure reason from Notes if [FAIL] tag present."""
-        step = plan.steps[step_idx]
-        notes = plan.step_notes.get(step, "").strip()
+        notes = plan.step_notes.get(step_idx, "").strip()
         if notes.startswith("[FAIL]"):
             if notes.startswith("[FAIL]:"):
                 return notes[7:].strip()
