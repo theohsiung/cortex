@@ -153,16 +153,14 @@ class TestReplannerAgentBuildPrompt:
         with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
 
-        prompt = agent._build_replan_prompt(
-            steps_to_replan=[1, 2], available_tools=["tool_a", "tool_b"]
-        )
+        prompt = agent._build_replan_prompt(failed_step_idx=2, available_tools=["tool_a", "tool_b"])
 
         assert "Step 0" in prompt
         assert "read_file" in prompt
         assert "completed" in prompt.lower() or "已完成" in prompt.lower()
 
     def test_build_prompt_includes_failed_steps(self):
-        """Should include failed steps info"""
+        """Should include failed step info"""
         plan = Plan(steps=["S0", "S1", "S2"])
         plan.mark_step(0, step_status="completed")
         plan.add_tool_call_pending(1, "write_file", {"path": "x.py"}, "ts")
@@ -171,10 +169,9 @@ class TestReplannerAgentBuildPrompt:
         with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
 
-        prompt = agent._build_replan_prompt(steps_to_replan=[1, 2], available_tools=["tool_a"])
+        prompt = agent._build_replan_prompt(failed_step_idx=2, available_tools=["tool_a"])
 
-        assert "S1" in prompt
-        assert "S2" in prompt
+        assert "Step 2" in prompt
 
     def test_build_prompt_includes_available_tools(self):
         """Should include available tools list"""
@@ -185,7 +182,7 @@ class TestReplannerAgentBuildPrompt:
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
 
         prompt = agent._build_replan_prompt(
-            steps_to_replan=[1], available_tools=["write_file", "run_command", "read_file"]
+            failed_step_idx=1, available_tools=["write_file", "run_command", "read_file"]
         )
 
         assert "write_file" in prompt
@@ -347,7 +344,7 @@ class TestReplannerAgentReplanSubgraph:
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
             agent.execute = AsyncMock(return_value=mock_result)
 
-        result = await agent.replan_subgraph(steps_to_replan=[1, 2], available_tools=["tool_a"])
+        result = await agent.replan_subgraph(failed_step_idx=1, available_tools=["tool_a"])
 
         agent.execute.assert_called_once()
         assert result.action == "redesign"
@@ -373,7 +370,7 @@ class TestReplannerAgentReplanSubgraph:
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
             agent.execute = AsyncMock(return_value=mock_result)
 
-        result = await agent.replan_subgraph(steps_to_replan=[1], available_tools=[])
+        result = await agent.replan_subgraph(failed_step_idx=1, available_tools=[])
 
         assert isinstance(result, ReplanResult)
         assert result.new_steps == {2: "Step X", 3: "Step Y"}
@@ -456,7 +453,7 @@ class TestReplannerIntents:
         with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             replanner = ReplannerAgent(plan_id="p4", model=MagicMock(), available_intents=intents)
 
-        prompt = replanner._build_replan_prompt(steps_to_replan=[1], available_tools=["tool_a"])
+        prompt = replanner._build_replan_prompt(failed_step_idx=1, available_tools=["tool_a"])
 
         assert "generate" in prompt
         assert "review" in prompt
@@ -493,7 +490,7 @@ class TestReplannerWithContext:
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
 
         prompt = agent._build_replan_prompt(
-            steps_to_replan=[1], available_tools=["tool_a"], context=ctx
+            failed_step_idx=1, available_tools=["tool_a"], context=ctx
         )
 
         assert "Find the ZIP code for clownfish sightings in Florida" in prompt
@@ -517,7 +514,7 @@ class TestReplannerWithContext:
         with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
 
-        prompt = agent._build_replan_prompt(steps_to_replan=[1], available_tools=[], context=ctx)
+        prompt = agent._build_replan_prompt(failed_step_idx=1, available_tools=[], context=ctx)
 
         assert "Found geo coords" in prompt
         assert "No ZIP code field" in prompt
@@ -540,7 +537,7 @@ class TestReplannerWithContext:
         with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
 
-        prompt = agent._build_replan_prompt(steps_to_replan=[1], available_tools=[], context=ctx)
+        prompt = agent._build_replan_prompt(failed_step_idx=1, available_tools=[], context=ctx)
 
         assert "2" in prompt and "3" in prompt
         assert "different strategy" in prompt.lower() or "attempt" in prompt.lower()
@@ -564,7 +561,7 @@ class TestReplannerWithContext:
         with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
 
-        prompt = agent._build_replan_prompt(steps_to_replan=[1], available_tools=[], context=ctx)
+        prompt = agent._build_replan_prompt(failed_step_idx=1, available_tools=[], context=ctx)
 
         assert "IMPORTANT_ENDING" in prompt
 
@@ -578,7 +575,7 @@ class TestReplannerWithContext:
             agent = ReplannerAgent(plan_id="test_plan", model=MagicMock())
 
         # No context param - should not raise
-        prompt = agent._build_replan_prompt(steps_to_replan=[1], available_tools=["tool_a"])
+        prompt = agent._build_replan_prompt(failed_step_idx=1, available_tools=["tool_a"])
 
         assert "S1" in prompt
         assert "Original Task" not in prompt
@@ -611,7 +608,7 @@ class TestReplannerWithContext:
             agent.execute = AsyncMock(return_value=mock_result)
 
         result = await agent.replan_subgraph(
-            steps_to_replan=[1], available_tools=["tool_a"], context=ctx
+            failed_step_idx=1, available_tools=["tool_a"], context=ctx
         )
 
         assert result.action == "redesign"

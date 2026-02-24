@@ -59,7 +59,7 @@ class ReplannerAgent(BaseAgent):
     Usage:
         replanner = ReplannerAgent(plan_id="p1", model=model)
         result = await replanner.replan_subgraph(
-            steps_to_replan=[5, 6, 7],
+            failed_step_idx=5,
             available_tools=["write_file", "run_command"]
         )
     """
@@ -106,7 +106,7 @@ class ReplannerAgent(BaseAgent):
 
     def _build_replan_prompt(
         self,
-        steps_to_replan: list[int],
+        failed_step_idx: int,
         available_tools: list[str],
         context: ReplanContext | None = None,
     ) -> str:
@@ -114,7 +114,7 @@ class ReplannerAgent(BaseAgent):
         Build the prompt for replanning.
 
         Args:
-            steps_to_replan: List of step indices to redesign
+            failed_step_idx: Index of the single failed step
             available_tools: List of available tool names
             context: Optional failure context for richer prompts
 
@@ -123,62 +123,52 @@ class ReplannerAgent(BaseAgent):
         """
         assert self.plan is not None
 
-        # Get completed steps info
         completed_indices = [
             i for i in self.plan.steps if self.plan.step_statuses[i] == "completed"
         ]
-
-        # Format completed DAG
         completed_dag = self.plan.format_completed_dag()
-
-        # Format completed steps tool history
         completed_tool_history = self.plan.format_tool_history(completed_indices)
 
-        # Build failed steps info
+        # Build failed step info (single step only)
         failed_lines = []
-        for idx in steps_to_replan:
-            if idx not in self.plan.steps:
-                continue
-            desc = self.plan.steps[idx]
-            failed_lines.append(f"### Step {idx}: {desc}")
+        desc = self.plan.steps.get(failed_step_idx, f"Step {failed_step_idx}")
+        failed_lines.append(f"### Step {failed_step_idx}: {desc}")
 
-            if context:
-                failed_lines.append(f"Attempt: {context.attempt_number}/{context.max_attempts}")
+        if context:
+            failed_lines.append(f"Attempt: {context.attempt_number}/{context.max_attempts}")
 
-                notes = context.failed_step_notes.get(idx, "")
-                if notes:
-                    failed_lines.append(f"\nFailure reason:\n{notes}")
+            notes = context.failed_step_notes.get(failed_step_idx, "")
+            if notes:
+                failed_lines.append(f"\nFailure reason:\n{notes}")
 
-                output = context.failed_step_outputs.get(idx, "")
-                if output:
-                    if len(output) > 500:
-                        output = "...[truncated]\n" + output[-500:]
-                    failed_lines.append(f"\nExecutor output (last 500 chars):\n{output}")
+            output = context.failed_step_outputs.get(failed_step_idx, "")
+            if output:
+                if len(output) > 500:
+                    output = "...[truncated]\n" + output[-500:]
+                failed_lines.append(f"\nExecutor output (last 500 chars):\n{output}")
 
-                tool_history = context.failed_tool_history.get(idx, [])
-                if tool_history:
-                    failed_lines.append("\nTool calls:")
-                    for call in tool_history:
-                        tool = call.get("tool", "?")
-                        args = call.get("args", {})
-                        result = call.get("result", "")
-                        args_str = (
-                            ", ".join(f'{k}="{v}"' for k, v in args.items())
-                            if isinstance(args, dict)
-                            else str(args)
-                        )
-                        failed_lines.append(f"- {tool}({args_str}) -> {result}")
+            tool_history = context.failed_tool_history.get(failed_step_idx, [])
+            if tool_history:
+                failed_lines.append("\nTool calls:")
+                for call in tool_history:
+                    tool = call.get("tool", "?")
+                    args = call.get("args", {})
+                    result = call.get("result", "")
+                    args_str = (
+                        ", ".join(f'{k}="{v}"' for k, v in args.items())
+                        if isinstance(args, dict)
+                        else str(args)
+                    )
+                    failed_lines.append(f"- {tool}({args_str}) -> {result}")
 
-            failed_lines.append("")
-        failed_steps_info = "\n".join(failed_lines)
-
-        # Next available ID
+        failed_step_info = "\n".join(failed_lines)
         next_id = self.plan._next_id
 
         return build_replan_prompt(
             completed_dag=completed_dag,
             completed_tool_history=completed_tool_history,
-            failed_steps_info=failed_steps_info,
+            failed_step_info=failed_step_info,
+            failed_step_id=failed_step_idx,
             next_id=next_id,
             available_tools=available_tools,
             available_intents=self.available_intents,
@@ -254,15 +244,15 @@ class ReplannerAgent(BaseAgent):
 
     async def replan_subgraph(
         self,
-        steps_to_replan: list[int],
+        failed_step_idx: int,
         available_tools: list[str],
         context: ReplanContext | None = None,
     ) -> ReplanResult:
         """
-        Redesign the specified steps.
+        Redesign the specified failed step.
 
         Args:
-            steps_to_replan: List of step indices to redesign
+            failed_step_idx: Index of the single failed step
             available_tools: List of available tool names
             context: Optional failure context for richer prompts
 
@@ -270,7 +260,7 @@ class ReplannerAgent(BaseAgent):
             ReplanResult with new steps and dependencies
         """
         max_parse_retries = 3
-        prompt = self._build_replan_prompt(steps_to_replan, available_tools, context=context)
+        prompt = self._build_replan_prompt(failed_step_idx, available_tools, context=context)
 
         for attempt in range(max_parse_retries):
             result = await self.execute(prompt)
