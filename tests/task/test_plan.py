@@ -9,7 +9,7 @@ class TestPlan:
         plan = Plan()
 
         assert plan.title == ""
-        assert plan.steps == []
+        assert plan.steps == {}
         assert plan.dependencies == {}
 
     def test_create_plan_with_title_and_steps(self):
@@ -18,6 +18,7 @@ class TestPlan:
 
         assert plan.title == "Test Plan"
         assert len(plan.steps) == 3
+        assert plan.steps == {0: "Step 1", 1: "Step 2", 2: "Step 3"}
         # Default sequential dependencies
         assert plan.dependencies == {1: [0], 2: [1]}
 
@@ -56,15 +57,15 @@ class TestPlan:
         plan.update(title="Updated", steps=["New Step 1", "New Step 2"], dependencies={1: [0]})
 
         assert plan.title == "Updated"
-        assert plan.steps == ["New Step 1", "New Step 2"]
+        assert plan.steps == {0: "New Step 1", 1: "New Step 2"}
 
     def test_step_statuses_initialized(self):
         """Should initialize all steps as not_started"""
         plan = Plan(steps=["A", "B", "C"])
 
-        assert plan.step_statuses["A"] == "not_started"
-        assert plan.step_statuses["B"] == "not_started"
-        assert plan.step_statuses["C"] == "not_started"
+        assert plan.step_statuses[0] == "not_started"
+        assert plan.step_statuses[1] == "not_started"
+        assert plan.step_statuses[2] == "not_started"
 
     def test_mark_step_status(self):
         """Should update step status"""
@@ -72,7 +73,7 @@ class TestPlan:
 
         plan.mark_step(0, step_status="in_progress")
 
-        assert plan.step_statuses["A"] == "in_progress"
+        assert plan.step_statuses[0] == "in_progress"
 
     def test_mark_step_with_notes(self):
         """Should store step notes"""
@@ -80,7 +81,7 @@ class TestPlan:
 
         plan.mark_step(0, step_status="completed", step_notes="Done successfully")
 
-        assert plan.step_notes["A"] == "Done successfully"
+        assert plan.step_notes[0] == "Done successfully"
 
     def test_get_ready_steps_initial(self):
         """Should return first step when no dependencies completed"""
@@ -173,7 +174,7 @@ class TestPlanToolHistory:
         plan = Plan(steps=["A"])
 
         with pytest.raises(ValueError):
-            plan.add_tool_call(5, "tool", {}, {}, "ts")  # step_index out of range
+            plan.add_tool_call(5, "tool", {}, {}, "ts")  # step_index not in steps
 
     def test_add_file(self):
         """Should record file for a step"""
@@ -358,7 +359,7 @@ class TestPlanDownstreamSteps:
 
     def test_get_downstream_steps_no_dependents(self):
         """Should return empty list when step has no dependents"""
-        # 0 → 1 → 2
+        # 0 -> 1 -> 2
         plan = Plan(steps=["A", "B", "C"])  # default sequential deps
 
         downstream = plan.get_downstream_steps(2)  # Last step
@@ -367,7 +368,7 @@ class TestPlanDownstreamSteps:
 
     def test_get_downstream_steps_direct_dependency(self):
         """Should return directly dependent steps"""
-        # 0 → 1 → 2
+        # 0 -> 1 -> 2
         plan = Plan(steps=["A", "B", "C"])
 
         downstream = plan.get_downstream_steps(0)
@@ -377,7 +378,7 @@ class TestPlanDownstreamSteps:
 
     def test_get_downstream_steps_indirect_dependency(self):
         """Should return indirectly dependent steps"""
-        # 0 → 1 → 2 → 3
+        # 0 -> 1 -> 2 -> 3
         plan = Plan(steps=["A", "B", "C", "D"])
 
         downstream = plan.get_downstream_steps(0)
@@ -386,8 +387,8 @@ class TestPlanDownstreamSteps:
 
     def test_get_downstream_steps_parallel_branches(self):
         """Should return all downstream in parallel DAG"""
-        # 0 → 1
-        #   ↘ 2
+        # 0 -> 1
+        #   \> 2
         plan = Plan(steps=["A", "B", "C"], dependencies={1: [0], 2: [0]})
 
         downstream = plan.get_downstream_steps(0)
@@ -397,9 +398,9 @@ class TestPlanDownstreamSteps:
     def test_get_downstream_steps_complex_dag(self):
         """Should handle complex DAG with multiple paths"""
         # Example from design doc: {1:[0], 2:[0], 3:[1], 4:[2], 5:[3,4], 6:[5], 7:[5]}
-        # 0 → 1 → 3 ─┐
-        #   ↘ 2 → 4 ─┴→ 5 → 6
-        #               ↘ 7
+        # 0 -> 1 -> 3 --\
+        #   \> 2 -> 4 --+-> 5 -> 6
+        #                     \> 7
         plan = Plan(
             steps=["S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7"],
             dependencies={1: [0], 2: [0], 3: [1], 4: [2], 5: [3, 4], 6: [5], 7: [5]},
@@ -427,99 +428,144 @@ class TestPlanDownstreamSteps:
 
 
 class TestPlanDAGOperations:
-    """Tests for remove_steps and add_steps methods"""
+    """Tests for replan() method"""
 
-    def test_remove_steps_single(self):
-        """Should remove a single step and update indices"""
-        # 0 → 1 → 2
-        plan = Plan(steps=["A", "B", "C"])
-        plan.mark_step(0, step_status="completed")
-
-        plan.remove_steps([1])
-
-        assert plan.steps == ["A", "C"]
-        # C (now index 1) should have dependency updated
-        assert plan.dependencies == {1: [0]}
-
-    def test_remove_steps_multiple(self):
-        """Should remove multiple steps"""
+    def test_replan_removes_failed_steps(self):
+        """Should remove specified steps and add new ones"""
+        # 0 -> 1 -> 2 -> 3 -> 4
         plan = Plan(
-            steps=["S0", "S1", "S2", "S3", "S4"], dependencies={1: [0], 2: [0], 3: [1, 2], 4: [3]}
+            steps=["S0", "S1", "S2", "S3", "S4"],
+            dependencies={1: [0], 2: [1], 3: [2], 4: [3]},
         )
         plan.mark_step(0, step_status="completed")
         plan.mark_step(1, step_status="completed")
         plan.mark_step(2, step_status="completed")
 
-        # Remove steps 3, 4 (the subgraph after completed steps)
-        plan.remove_steps([3, 4])
-
-        assert plan.steps == ["S0", "S1", "S2"]
-        assert 3 not in plan.dependencies
-        assert 4 not in plan.dependencies
-
-    def test_remove_steps_preserves_completed_status(self):
-        """Should preserve status of remaining steps"""
-        plan = Plan(steps=["A", "B", "C", "D"])
-        plan.mark_step(0, step_status="completed")
-        plan.mark_step(1, step_status="completed")
-
-        plan.remove_steps([2, 3])
-
-        assert plan.step_statuses["A"] == "completed"
-        assert plan.step_statuses["B"] == "completed"
-
-    def test_remove_steps_clears_tool_history(self):
-        """Should clear tool history for removed steps"""
-        plan = Plan(steps=["A", "B", "C"])
-        plan.add_tool_call(0, "tool", {}, "result", "ts")
-        plan.add_tool_call(1, "tool", {}, "result", "ts")
-
-        plan.remove_steps([1])
-
-        assert 0 in plan.step_tool_history
-        assert 1 not in plan.step_tool_history
-
-    def test_add_steps_basic(self):
-        """Should add new steps after specified position"""
-        plan = Plan(steps=["A", "B"])
-        plan.mark_step(0, step_status="completed")
-        plan.mark_step(1, step_status="completed")
-
-        plan.add_steps(
-            new_steps=["C", "D"],
-            new_dependencies={0: [], 1: [0]},  # Relative to new steps
-            insert_after=1,
+        plan.replan(
+            remove_ids=[3, 4],
+            new_steps={5: "New3", 6: "New4"},
+            new_dependencies={5: [2], 6: [5]},
         )
 
-        assert plan.steps == ["A", "B", "C", "D"]
-        # New step C (index 2) should depend on last completed (index 1)
-        # New step D (index 3) should depend on C (index 2)
-        assert 2 in plan.dependencies
-        assert 3 in plan.dependencies
-        assert plan.dependencies[3] == [2]
+        # Original failed steps removed
+        assert 3 not in plan.steps
+        assert 4 not in plan.steps
+        # New steps added
+        assert plan.steps[5] == "New3"
+        assert plan.steps[6] == "New4"
+        # Completed steps preserved
+        assert plan.steps[0] == "S0"
+        assert plan.steps[1] == "S1"
+        assert plan.steps[2] == "S2"
 
-    def test_add_steps_initializes_status(self):
-        """Should initialize new steps as not_started"""
-        plan = Plan(steps=["A"])
+    def test_replan_preserves_completed_status(self):
+        """Should preserve status of completed steps after replan"""
+        plan = Plan(
+            steps=["S0", "S1", "S2", "S3", "S4"],
+            dependencies={1: [0], 2: [1], 3: [2], 4: [3]},
+        )
+        plan.mark_step(0, step_status="completed", step_notes="Done A")
+        plan.mark_step(1, step_status="completed", step_notes="Done B")
+        plan.mark_step(2, step_status="completed", step_notes="Done C")
+
+        plan.replan(
+            remove_ids=[3, 4],
+            new_steps={5: "New3", 6: "New4"},
+            new_dependencies={5: [2], 6: [5]},
+        )
+
+        assert plan.step_statuses[0] == "completed"
+        assert plan.step_statuses[1] == "completed"
+        assert plan.step_statuses[2] == "completed"
+        assert plan.step_notes[0] == "Done A"
+        assert plan.step_notes[1] == "Done B"
+        assert plan.step_notes[2] == "Done C"
+        # New steps are not_started
+        assert plan.step_statuses[5] == "not_started"
+        assert plan.step_statuses[6] == "not_started"
+
+    def test_replan_clears_tool_history_for_removed(self):
+        """Should clear tool history for removed steps but keep completed ones"""
+        plan = Plan(
+            steps=["A", "B", "C"],
+            dependencies={1: [0], 2: [1]},
+        )
+        plan.add_tool_call(0, "tool", {}, "result", "ts")
+        plan.add_tool_call(1, "tool", {}, "result", "ts")
+        plan.add_tool_call(2, "tool", {}, "result", "ts")
         plan.mark_step(0, step_status="completed")
 
-        plan.add_steps(["B", "C"], {0: [], 1: [0]}, insert_after=0)
+        plan.replan(
+            remove_ids=[1, 2],
+            new_steps={3: "New1", 4: "New2"},
+            new_dependencies={3: [0], 4: [3]},
+        )
 
-        assert plan.step_statuses["B"] == "not_started"
-        assert plan.step_statuses["C"] == "not_started"
+        # Completed step's tool history preserved
+        assert 0 in plan.step_tool_history
+        # Removed steps' tool history gone
+        assert 1 not in plan.step_tool_history
+        assert 2 not in plan.step_tool_history
 
-    def test_add_steps_connects_to_completed(self):
-        """Should connect first new step to last completed step"""
-        plan = Plan(steps=["S0", "S1", "S2"], dependencies={1: [0], 2: [1]})
+    def test_replan_adds_new_steps_with_deps(self):
+        """Should correctly add new steps and their dependencies"""
+        plan = Plan(
+            steps=["S0", "S1", "S2"],
+            dependencies={1: [0], 2: [1]},
+        )
         plan.mark_step(0, step_status="completed")
         plan.mark_step(1, step_status="completed")
 
-        # Replace S2 with new steps
-        plan.remove_steps([2])
-        plan.add_steps(new_steps=["New1", "New2"], new_dependencies={0: [], 1: [0]}, insert_after=1)
+        plan.replan(
+            remove_ids=[2],
+            new_steps={3: "NewA", 4: "NewB", 5: "NewC"},
+            new_dependencies={3: [1], 4: [1], 5: [3, 4]},
+        )
 
-        # New1 (index 2) should depend on S1 (index 1)
-        assert 1 in plan.dependencies.get(2, [])
+        assert plan.steps[3] == "NewA"
+        assert plan.steps[4] == "NewB"
+        assert plan.steps[5] == "NewC"
+        assert plan.dependencies[3] == [1]
+        assert plan.dependencies[4] == [1]
+        assert set(plan.dependencies[5]) == {3, 4}
+
+    def test_replan_connects_new_to_completed(self):
+        """New steps can reference completed step IDs in dependencies"""
+        plan = Plan(
+            steps=["S0", "S1", "S2", "S3"],
+            dependencies={1: [0], 2: [0], 3: [1, 2]},
+        )
+        plan.mark_step(0, step_status="completed")
+        plan.mark_step(1, step_status="completed")
+        plan.mark_step(2, step_status="completed")
+
+        plan.replan(
+            remove_ids=[3],
+            new_steps={4: "Replace S3", 5: "Extra step"},
+            new_dependencies={4: [1, 2], 5: [4]},
+        )
+
+        # New step 4 depends on completed steps 1 and 2
+        assert plan.dependencies[4] == [1, 2]
+        assert plan.dependencies[5] == [4]
+        # New step 4 should be ready (both deps completed)
+        ready = plan.get_ready_steps()
+        assert 4 in ready
+
+    def test_replan_updates_next_id(self):
+        """_next_id should be updated to max(new step IDs) + 1"""
+        plan = Plan(steps=["A", "B", "C"])
+        assert plan._next_id == 3
+
+        plan.mark_step(0, step_status="completed")
+
+        plan.replan(
+            remove_ids=[1, 2],
+            new_steps={5: "New1", 6: "New2"},
+            new_dependencies={5: [0], 6: [5]},
+        )
+
+        assert plan._next_id == 7  # max(5, 6) + 1
 
 
 class TestPlanFormatToolHistory:
@@ -605,35 +651,62 @@ class TestPlanIntents:
         plan.update(steps=["B", "C"])
         assert plan.step_intents == {0: "default", 1: "default"}
 
-    def test_remove_steps_updates_intents(self):
-        """remove_steps() should remove intents and re-index"""
+    def test_replan_removes_intents_for_removed_steps(self):
+        """replan() should remove intents for removed steps"""
         plan = Plan(
             steps=["A", "B", "C"],
             dependencies={1: [0], 2: [1]},
             step_intents={0: "generate", 1: "review", 2: "fix"},
         )
-        plan.remove_steps([1])
-        assert plan.step_intents == {0: "generate", 1: "fix"}
-
-    def test_add_steps_with_intents(self):
-        """add_steps() should accept intents for new steps"""
-        plan = Plan(steps=["A"], dependencies={}, step_intents={0: "default"})
         plan.mark_step(0, step_status="completed")
-        plan.add_steps(
-            new_steps=["B", "C"],
-            new_dependencies={1: [0]},
-            insert_after=0,
-            new_intents={0: "generate", 1: "review"},
+
+        plan.replan(
+            remove_ids=[1, 2],
+            new_steps={3: "New1"},
+            new_dependencies={3: [0]},
         )
-        assert plan.step_intents[1] == "generate"
-        assert plan.step_intents[2] == "review"
 
-    def test_add_steps_without_intents_defaults(self):
-        """add_steps() without intents should default to 'default'"""
-        plan = Plan(steps=["A"], dependencies={}, step_intents={0: "default"})
+        assert 1 not in plan.step_intents
+        assert 2 not in plan.step_intents
+        # Completed step intent preserved
+        assert plan.step_intents[0] == "generate"
+
+    def test_replan_adds_intents_for_new_steps(self):
+        """replan() should accept and set intents for new steps"""
+        plan = Plan(
+            steps=["A", "B"],
+            dependencies={1: [0]},
+            step_intents={0: "generate", 1: "review"},
+        )
         plan.mark_step(0, step_status="completed")
-        plan.add_steps(new_steps=["B"], new_dependencies={}, insert_after=0)
-        assert plan.step_intents[1] == "default"
+
+        plan.replan(
+            remove_ids=[1],
+            new_steps={2: "New1", 3: "New2"},
+            new_dependencies={2: [0], 3: [2]},
+            new_intents={2: "fix", 3: "review"},
+        )
+
+        assert plan.step_intents[0] == "generate"  # preserved
+        assert plan.step_intents[2] == "fix"
+        assert plan.step_intents[3] == "review"
+
+    def test_replan_without_intents_defaults(self):
+        """replan() without intents should default new steps to 'default'"""
+        plan = Plan(
+            steps=["A", "B"],
+            dependencies={1: [0]},
+            step_intents={0: "generate", 1: "review"},
+        )
+        plan.mark_step(0, step_status="completed")
+
+        plan.replan(
+            remove_ids=[1],
+            new_steps={2: "New1"},
+            new_dependencies={2: [0]},
+        )
+
+        assert plan.step_intents[2] == "default"
 
     def test_get_step_intent(self):
         """get_step_intent() should return intent for a step"""
@@ -646,27 +719,39 @@ class TestPlanIntents:
         plan = Plan(steps=["A"])
         assert plan.get_step_intent(0) == "default"
 
-    def test_add_steps_reindexes_existing_intents(self):
-        """add_steps() should shift existing intents when inserting in the middle"""
-        plan = Plan(
-            steps=["A", "B", "C"],
-            dependencies={1: [0], 2: [1]},
-            step_intents={0: "generate", 1: "review", 2: "fix"},
-        )
+
+class TestPlanFormatCompletedDag:
+    """Tests for format_completed_dag method"""
+
+    def test_format_completed_dag_no_completed(self):
+        """Should return placeholder when no steps are completed"""
+        plan = Plan(steps=["A", "B", "C"])
+
+        output = plan.format_completed_dag()
+
+        assert output == "(No completed steps)"
+
+    def test_format_completed_dag_some_completed(self):
+        """Should format only completed steps"""
+        plan = Plan(steps=["A", "B", "C"], dependencies={1: [0], 2: [1]})
         plan.mark_step(0, step_status="completed")
-        # Insert 2 new steps after step 0
-        plan.add_steps(
-            new_steps=["X", "Y"],
-            new_dependencies={1: [0]},
-            insert_after=0,
-            new_intents={0: "default", 1: "generate"},
-        )
-        # Steps: A, X, Y, B, C
-        assert plan.step_intents[0] == "generate"  # A (unchanged)
-        assert plan.step_intents[1] == "default"  # X (new)
-        assert plan.step_intents[2] == "generate"  # Y (new)
-        assert plan.step_intents[3] == "review"  # B (shifted from 1)
-        assert plan.step_intents[4] == "fix"  # C (shifted from 2)
+        plan.mark_step(1, step_status="completed")
+
+        output = plan.format_completed_dag()
+
+        assert "0: A" in output
+        assert "1: B" in output
+        assert "C" not in output
+
+    def test_format_completed_dag_includes_dependencies(self):
+        """Should include dependency info for completed steps"""
+        plan = Plan(steps=["A", "B", "C"], dependencies={1: [0], 2: [0]})
+        plan.mark_step(0, step_status="completed")
+        plan.mark_step(1, step_status="completed")
+
+        output = plan.format_completed_dag()
+
+        assert "depends on" in output
 
 
 class TestPlanReplanAttempts:
@@ -687,3 +772,132 @@ class TestPlanReplanAttempts:
 
         assert plan.replan_attempts[0] == 2
         assert 1 not in plan.replan_attempts
+
+
+class TestPlanDropSteps:
+    """Tests for drop_steps method."""
+
+    def test_drop_steps_removes_steps(self):
+        plan = Plan(
+            title="Test",
+            steps=["A", "B", "C", "D"],
+            dependencies={1: [0], 2: [0], 3: [1, 2]},
+        )
+        plan.mark_step(0, step_status="completed")
+        plan.drop_steps([2, 3])
+
+        assert 2 not in plan.steps
+        assert 3 not in plan.steps
+        assert 0 in plan.steps
+        assert 1 in plan.steps
+
+    def test_drop_steps_cleans_dependencies(self):
+        plan = Plan(
+            title="Test",
+            steps=["A", "B", "C", "D"],
+            dependencies={1: [0], 2: [0], 3: [1, 2]},
+        )
+        plan.drop_steps([2, 3])
+
+        assert plan.dependencies.get(1) == [0]
+        assert 2 not in plan.dependencies
+        assert 3 not in plan.dependencies
+
+    def test_drop_steps_cleans_all_tracking(self):
+        plan = Plan(title="Test", steps=["A", "B"], dependencies={1: [0]})
+        plan.step_notes[1] = "some note"
+        plan.step_tool_history[1] = [{"tool": "x"}]
+        plan.step_files[1] = ["file.txt"]
+        plan.step_intents[1] = "generate"
+        plan.replan_attempts[1] = 2
+
+        plan.drop_steps([1])
+
+        assert 1 not in plan.step_statuses
+        assert 1 not in plan.step_notes
+        assert 1 not in plan.step_tool_history
+        assert 1 not in plan.step_files
+        assert 1 not in plan.step_intents
+        assert 1 not in plan.replan_attempts
+
+    def test_drop_steps_ignores_nonexistent(self):
+        plan = Plan(title="Test", steps=["A"], dependencies={})
+        plan.drop_steps([99])  # Should not raise
+        assert 0 in plan.steps
+
+
+class TestPlanResetStep:
+    """Tests for reset_step method."""
+
+    def test_reset_step_clears_state(self):
+        plan = Plan(title="Test", steps=["A", "B"], dependencies={1: [0]})
+        plan.mark_step(0, step_status="in_progress", step_notes="[FAIL]: error")
+        plan.step_tool_history[0] = [{"tool": "web_search", "status": "pending"}]
+
+        plan.reset_step(0)
+
+        assert plan.step_statuses[0] == "not_started"
+        assert plan.step_notes[0] == ""
+        assert plan.step_tool_history.get(0) == []
+        assert plan.steps[0] == "A"  # Description unchanged
+
+    def test_reset_step_with_new_description(self):
+        plan = Plan(title="Test", steps=["Original desc"], dependencies={})
+        plan.reset_step(0, new_description="Completely different approach")
+
+        assert plan.steps[0] == "Completely different approach"
+        assert plan.step_statuses[0] == "not_started"
+
+    def test_reset_step_with_new_intent(self):
+        plan = Plan(title="Test", steps=["A"], dependencies={}, step_intents={0: "generate"})
+        plan.reset_step(0, new_intent="research")
+
+        assert plan.step_intents[0] == "research"
+
+    def test_reset_step_preserves_dependencies(self):
+        plan = Plan(
+            title="Test",
+            steps=["A", "B", "C"],
+            dependencies={1: [0], 2: [1]},
+        )
+        plan.reset_step(1)
+
+        assert plan.dependencies[1] == [0]
+        assert plan.dependencies[2] == [1]
+
+    def test_reset_step_invalid_index_raises(self):
+        plan = Plan(title="Test", steps=["A"], dependencies={})
+
+        with pytest.raises(ValueError, match="Invalid step_index"):
+            plan.reset_step(99)
+
+
+class TestPlanRecalculateNextId:
+    """Tests for recalculate_next_id method."""
+
+    def test_recalculate_after_drop(self):
+        plan = Plan(
+            title="Test",
+            steps=["A", "B", "C", "D"],
+            dependencies={1: [0], 2: [1], 3: [2]},
+        )
+        assert plan._next_id == 4
+
+        plan.drop_steps([2, 3])
+        plan.recalculate_next_id()
+
+        assert plan._next_id == 2  # max(0, 1) + 1
+
+    def test_recalculate_empty_plan(self):
+        plan = Plan(title="Test")
+        plan.recalculate_next_id()
+
+        assert plan._next_id == 0
+
+    def test_recalculate_with_gap(self):
+        plan = Plan(title="Test", steps=["A", "B", "C"], dependencies={})
+        # Drop step 1, leaving steps 0 and 2
+        plan.drop_steps([1])
+        plan.recalculate_next_id()
+
+        assert plan._next_id == 3  # max(0, 2) + 1
