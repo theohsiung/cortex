@@ -25,7 +25,7 @@ config.toml
 
 # local files
 docs/
-scripts/*.log
+scripts/example_compare.py
 app/agents/coding_agent/
 tools.py
 note.txt
