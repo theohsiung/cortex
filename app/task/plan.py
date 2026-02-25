@@ -59,8 +59,8 @@ class Plan:
         self.step_tool_history: dict[int, list[dict]] = {}
         self.step_files: dict[int, list[str]] = {}
 
-        # Initialize replan tracking
-        self.replan_attempts: dict[int, int] = {}
+        # Global replan counter (shared across all steps)
+        self.global_replan_count: int = 0
 
         # Initialize step intents: fill missing indices with "default"
         self.step_intents: dict[int, str] = {}
@@ -233,30 +233,6 @@ class Plan:
 
         return ready
 
-    def get_downstream_steps(self, step_idx: int) -> list[int]:
-        """
-        Get all downstream steps (direct + indirect dependents).
-
-        Args:
-            step_idx: The step index to find dependents for.
-
-        Returns:
-            Sorted list of step indices that depend on this step.
-        """
-        downstream = set()
-        to_check = [step_idx]
-
-        while to_check:
-            current = to_check.pop()
-            for idx, deps in self.dependencies.items():
-                if idx not in self.steps:
-                    continue
-                if current in deps and idx not in downstream:
-                    downstream.add(idx)
-                    to_check.append(idx)
-
-        return sorted(downstream)
-
     def get_progress(self) -> dict[str, int]:
         """Get progress statistics."""
         statuses = list(self.step_statuses.values())
@@ -330,136 +306,102 @@ class Plan:
 
         return "\n".join(lines)
 
-    def replan(
-        self,
-        remove_ids: list[int],
-        new_steps: dict[int, str],
-        new_dependencies: dict[int, list[int]],
-        new_intents: dict[int, str] | None = None,
-    ) -> None:
-        """Atomic replan: remove failed steps and add new steps.
+    def _get_downstream(self, step_id: int) -> set[int]:
+        """找出所有直接或間接依賴 step_id 的步驟。
 
-        Args:
-            remove_ids: Step IDs to remove (failed + downstream).
-            new_steps: New steps as {id: description}. IDs assigned by LLM
-                starting from _next_id.
-            new_dependencies: Dependencies for new steps, using real IDs.
-            new_intents: Optional intents for new steps.
+        透過 BFS 遍歷 dependency graph 的子節點方向。
+        dependencies[child] = [parents]，所以 child of X = 任何 Y where X in dependencies[Y]。
         """
-        remove_set = set(remove_ids)
+        downstream: set[int] = set()
+        queue = [step_id]
+        while queue:
+            current = queue.pop(0)
+            for sid, deps in self.dependencies.items():
+                if current in deps and sid not in downstream:
+                    downstream.add(sid)
+                    queue.append(sid)
+        return downstream
 
-        # Delete removed steps
-        for sid in remove_ids:
+    def _get_terminal_nodes(self) -> set[int]:
+        """找出沒有子節點的終端步驟（不被任何其他步驟依賴的）。"""
+        parents_set: set[int] = set()
+        for deps in self.dependencies.values():
+            parents_set.update(deps)
+        return set(self.steps.keys()) - parents_set
+
+    def apply_replan(
+        self,
+        failed_step_id: int,
+        new_description: str,
+        new_intent: str,
+        continuation_steps: dict[int, str] | None = None,
+        continuation_dependencies: dict[int, list[int]] | None = None,
+        continuation_intents: dict[int, str] | None = None,
+    ) -> None:
+        """Apply a replan after a step failure.
+
+        1. 刪除 failed step 的所有 downstream steps
+        2. 重設 failed step（新 description、清 tool history）
+        3. 如果有 continuation steps，map local IDs → actual IDs，
+           並自動連接 continuation root nodes 到 DAG 的 terminal nodes
+        """
+        # 1. 刪除 downstream steps
+        downstream = self._get_downstream(failed_step_id)
+        for sid in downstream:
             self.steps.pop(sid, None)
             self.step_statuses.pop(sid, None)
             self.step_notes.pop(sid, None)
             self.step_tool_history.pop(sid, None)
             self.step_files.pop(sid, None)
             self.step_intents.pop(sid, None)
-            self.replan_attempts.pop(sid, None)
+            self.dependencies.pop(sid, None)
 
-        # Clean stale deps: remove entries for deleted steps
-        for sid in list(self.dependencies):
-            if sid in remove_set:
-                del self.dependencies[sid]
-            else:
-                cleaned = [d for d in self.dependencies[sid] if d not in remove_set]
-                if cleaned:
-                    self.dependencies[sid] = cleaned
+        # 2. 重設 failed step
+        self.steps[failed_step_id] = new_description
+        self.step_statuses[failed_step_id] = "not_started"
+        self.step_notes[failed_step_id] = ""
+        self.step_tool_history.pop(failed_step_id, None)
+        self.step_files.pop(failed_step_id, None)
+        self.step_intents[failed_step_id] = new_intent or "default"
+
+        # 3. 加入 continuation steps
+        if continuation_steps:
+            continuation_dependencies = continuation_dependencies or {}
+            continuation_intents = continuation_intents or {}
+
+            # Map local IDs → actual IDs
+            base_id = max(self.steps.keys()) + 1
+            sorted_local_ids = sorted(continuation_steps.keys())
+            id_map = {lid: base_id + i for i, lid in enumerate(sorted_local_ids)}
+
+            # 找 terminal nodes
+            terminal_nodes = sorted(self._get_terminal_nodes())
+
+            # 找 continuation root nodes（沒有 internal deps 的）
+            norm_cont_deps = self._normalize_dependencies(continuation_dependencies)
+            root_local_ids = set()
+            for lid in sorted_local_ids:
+                if not norm_cont_deps.get(lid, []):
+                    root_local_ids.add(lid)
+
+            # 加入每個 continuation step
+            for lid in sorted_local_ids:
+                actual_id = id_map[lid]
+                self.steps[actual_id] = continuation_steps[lid]
+                self.step_statuses[actual_id] = "not_started"
+                self.step_notes[actual_id] = ""
+                self.step_intents[actual_id] = continuation_intents.get(lid, "default")
+
+                if lid in root_local_ids:
+                    self.dependencies[actual_id] = terminal_nodes
                 else:
-                    del self.dependencies[sid]
+                    self.dependencies[actual_id] = [id_map[d] for d in norm_cont_deps[lid]]
 
-        # Add new steps
-        normalized_steps = {int(k): v for k, v in new_steps.items()}
-        for sid, desc in normalized_steps.items():
-            self.steps[sid] = desc
-            self.step_statuses[sid] = "not_started"
-            self.step_notes[sid] = ""
-            self._next_id = max(self._next_id, sid + 1)
-
-        # Add new dependencies
-        normalized_deps = self._normalize_dependencies(new_dependencies)
-        for sid, deps in normalized_deps.items():
-            self.dependencies[sid] = deps
-
-        # Add new intents
-        if new_intents:
-            for sid, intent in new_intents.items():
-                self.step_intents[int(sid)] = intent
-        # Default intents for new steps without explicit intent
-        for sid in normalized_steps:
-            if sid not in self.step_intents:
-                self.step_intents[sid] = "default"
-
-    def drop_steps(self, step_ids: list[int]) -> None:
-        """Remove specified steps and clean up all references."""
-        remove_set = set(step_ids)
-
-        for sid in step_ids:
-            self.steps.pop(sid, None)
-            self.step_statuses.pop(sid, None)
-            self.step_notes.pop(sid, None)
-            self.step_tool_history.pop(sid, None)
-            self.step_files.pop(sid, None)
-            self.step_intents.pop(sid, None)
-            self.replan_attempts.pop(sid, None)
-
-        # Clean dependencies
-        for sid in list(self.dependencies):
-            if sid in remove_set:
-                del self.dependencies[sid]
-            else:
-                cleaned = [d for d in self.dependencies[sid] if d not in remove_set]
-                if cleaned:
-                    self.dependencies[sid] = cleaned
-                else:
-                    del self.dependencies[sid]
-
-    def reset_step(
-        self,
-        step_idx: int,
-        new_description: str | None = None,
-        new_intent: str | None = None,
-    ) -> None:
-        """Reset a step to not_started, optionally updating description and intent.
-
-        Clears notes, tool history, and files. Preserves dependencies.
-        """
-        if step_idx not in self.steps:
-            raise ValueError(f"Invalid step_index: {step_idx}")
-
-        self.step_statuses[step_idx] = "not_started"
-        self.step_notes[step_idx] = ""
-        self.step_tool_history[step_idx] = []
-        self.step_files.pop(step_idx, None)
-
-        if new_description is not None:
-            self.steps[step_idx] = new_description
-        if new_intent is not None:
-            self.step_intents[step_idx] = new_intent
-
-    def recalculate_next_id(self) -> None:
-        """Recalculate _next_id based on remaining step IDs."""
+        # Update _next_id
         if self.steps:
             self._next_id = max(self.steps.keys()) + 1
         else:
             self._next_id = 0
-
-    def format_completed_dag(self) -> str:
-        """Format the completed portion of the DAG for the replanner LLM.
-
-        Returns a structured representation of completed steps with their
-        IDs, descriptions, and dependencies.
-        """
-        lines = []
-        for idx in sorted(self.steps.keys()):
-            if self.step_statuses.get(idx) != "completed":
-                continue
-            step = self.steps[idx]
-            deps = self.dependencies.get(idx, [])
-            dep_str = f" (depends on: {deps})" if deps else ""
-            lines.append(f"  {idx}: {step}{dep_str}")
-        return "\n".join(lines) if lines else "(No completed steps)"
 
     def format_tool_history(self, step_indices: list[int]) -> str:
         """

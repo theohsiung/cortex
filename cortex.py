@@ -9,7 +9,7 @@ from typing import Any, Callable, Union
 
 from app.agents.executor.executor_agent import ExecutorAgent
 from app.agents.planner.planner_agent import PlannerAgent
-from app.agents.replanner.replanner_agent import ReplanContext, ReplannerAgent
+from app.agents.replanner.replanner_agent import ReplannerAgent
 from app.agents.verifier.verifier import Verifier
 from app.config import CortexConfig
 from app.sandbox.sandbox_manager import SandboxManager
@@ -68,10 +68,18 @@ class Cortex:
         return self._model
 
     def _get_executor_factory(self, intent: str):
-        """Get executor factory for an intent via importlib, or None."""
+        """Get executor factory for an intent via importlib, or None.
+
+        找不到對應 intent 時 fallback 到第一個設定的 executor
+        (例如 planner 給 "default" 但 config 只有 "general")。
+        """
         entry = self._executor_entries.get(intent)
         if entry:
             return entry.get_factory()
+        if self.config.executors:
+            fallback = self.config.executors[0]
+            logger.info("Intent %r 找不到，fallback 到 %r", intent, fallback.intent)
+            return fallback.get_factory()
         return None
 
     def _get_available_intents(self) -> dict[str, str]:
@@ -220,6 +228,24 @@ class Cortex:
                                 result = await executor.execute(
                                     query_text, exec_context=exec_context
                                 )
+                                # Nudge retry if 0 tool calls
+                                tool_history = plan.step_tool_history.get(step_idx, [])
+                                if not tool_history:
+                                    logger.warning(
+                                        "Step %d had 0 tool calls, retrying with nudge",
+                                        step_idx,
+                                    )
+                                    nudge = (
+                                        f"Your previous response for step {step_idx} contained NO tool calls. "
+                                        f"You only described what should be done instead of actually doing it.\n\n"
+                                        f"You MUST call the appropriate tool(s) now to complete this step:\n"
+                                        f"{step_desc}\n\n"
+                                        f"Call the tool directly. Do NOT explain — just execute."
+                                    )
+                                    exec_context_retry = ExecutionContext(step_index=step_idx)
+                                    result = await executor.execute(
+                                        nudge, exec_context=exec_context_retry
+                                    )
                                 output = result.output
                             else:
                                 # Default internal executor
@@ -330,18 +356,14 @@ class Cortex:
                                     verify_result.notes,
                                 )
 
-                            # Save failure context for replanner
-                            plan.mark_step(
-                                step_idx,
-                                step_notes=verify_result.notes,
-                            )
+                            # Save failure context
                             failed_outputs[step_idx] = result
+                            step_desc = plan.steps.get(step_idx, f"Step {step_idx}")
 
-                            attempts = plan.replan_attempts.get(step_idx, 0)
                             max_replan = self.config.tuning.max_replan_attempts
-                            if attempts >= max_replan:
+                            if plan.global_replan_count >= max_replan:
                                 logger.error(
-                                    "✗ Step %d blocked - max replan attempts (%d) reached",
+                                    "✗ Step %d blocked - max global replan attempts (%d) reached",
                                     step_idx,
                                     max_replan,
                                 )
@@ -359,88 +381,48 @@ class Cortex:
                                     },
                                 )
                             else:
-                                # Replan: capture → drop downstream → reset → recalculate → replanner → apply
-                                downstream = plan.get_downstream_steps(step_idx)
+                                plan.global_replan_count += 1
                                 logger.info(
-                                    "🔄 REPLANNING: step %d + %d downstream steps (attempt %d/%d)",
+                                    "🔄 REPLANNING after step %d failure (global attempt %d/%d)",
                                     step_idx,
-                                    len(downstream),
-                                    attempts + 1,
+                                    plan.global_replan_count,
                                     max_replan,
                                 )
-                                logger.info("  Downstream to drop: %s", downstream)
 
                                 await emit(
                                     "replanning",
                                     {
                                         "step_idx": step_idx,
-                                        "downstream": downstream,
-                                        "attempt": attempts + 1,
+                                        "attempt": plan.global_replan_count,
                                     },
                                 )
 
-                                # ① Capture context BEFORE modifying plan
-                                replan_ctx = ReplanContext(
+                                replan_result = await replanner.replan(
                                     original_query=query,
-                                    failed_step_notes={step_idx: plan.step_notes.get(step_idx, "")},
-                                    failed_step_outputs={
-                                        step_idx: failed_outputs.get(step_idx, "")
-                                    },
-                                    failed_tool_history={
-                                        step_idx: plan.step_tool_history.get(step_idx, [])
-                                    },
-                                    attempt_number=attempts + 1,
+                                    failed_step_id=step_idx,
+                                    failed_step_desc=step_desc,
+                                    failed_output=failed_outputs.get(step_idx, ""),
+                                    failed_reason=verify_result.notes,
+                                    failed_tool_history=plan.step_tool_history.get(step_idx, []),
+                                    attempt=plan.global_replan_count,
                                     max_attempts=max_replan,
-                                )
-
-                                # ② Drop downstream steps (frees their IDs)
-                                if downstream:
-                                    plan.drop_steps(downstream)
-
-                                # ③ Reset failed step (keep ID, clear state)
-                                plan.reset_step(step_idx)
-                                plan.replan_attempts[step_idx] = attempts + 1
-
-                                # ④ Recalculate _next_id
-                                plan.recalculate_next_id()
-
-                                logger.info(
-                                    "  After drop+reset: steps=%s, next_id=%d",
-                                    list(plan.steps.keys()),
-                                    plan._next_id,
-                                )
-
-                                # ⑤ Call replanner
-                                replan_result = await replanner.replan_subgraph(
-                                    failed_step_idx=step_idx,
                                     available_tools=available_tools,
-                                    context=replan_ctx,
                                 )
 
                                 if replan_result.action == "redesign":
-                                    # ⑥ Apply retry_step update to failed step
-                                    if replan_result.retry_step:
-                                        plan.steps[step_idx] = replan_result.retry_step.description
-                                        plan.step_intents[step_idx] = (
-                                            replan_result.retry_step.intent
-                                        )
-
-                                    # ⑦ Add new downstream steps
-                                    if replan_result.new_steps:
-                                        plan.replan(
-                                            remove_ids=[],
-                                            new_steps=replan_result.new_steps,
-                                            new_dependencies=replan_result.new_dependencies,
-                                            new_intents=replan_result.new_intents,
-                                        )
-
-                                    logger.info(
-                                        "✓ Replanner redesigned step %d with %d new downstream steps",
-                                        step_idx,
-                                        len(replan_result.new_steps),
+                                    plan.apply_replan(
+                                        failed_step_id=step_idx,
+                                        new_description=replan_result.failed_step_description,
+                                        new_intent=replan_result.failed_step_intent,
+                                        continuation_steps=replan_result.continuation_steps,
+                                        continuation_dependencies=replan_result.continuation_dependencies,
+                                        continuation_intents=replan_result.continuation_intents,
                                     )
-
-                                    # Emit updated plan
+                                    new_count = len(replan_result.continuation_steps) + 1
+                                    logger.info(
+                                        "✓ Replanner redesigned plan with %d new steps",
+                                        new_count,
+                                    )
                                     await emit(
                                         "plan_updated",
                                         {
@@ -450,18 +432,11 @@ class Cortex:
                                         },
                                     )
                                 else:
-                                    # Replanner gave up
                                     logger.error("✗ Replanner gave up on step %d", step_idx)
-                                    existing_notes = plan.step_notes.get(step_idx, "")
-                                    gave_up_notes = (
-                                        f"{existing_notes} | Replanner gave up"
-                                        if existing_notes
-                                        else "Replanner gave up"
-                                    )
                                     plan.mark_step(
                                         step_idx,
                                         step_status="blocked",
-                                        step_notes=gave_up_notes,
+                                        step_notes="Replanner gave up",
                                     )
                                     await emit(
                                         "step_status",

@@ -643,15 +643,16 @@ class TestCortexVerificationAndReplan:
         mock_verifier_cls.return_value = mock_verifier
 
         # Replanner redesigns
-        from app.agents.replanner.replanner_agent import ReplanResult, RetryStepInfo
+        from app.agents.replanner.replanner_agent import ReplanResult
 
         mock_replanner = AsyncMock()
-        mock_replanner.replan_subgraph = AsyncMock(
+        mock_replanner.replan = AsyncMock(
             return_value=ReplanResult(
                 action="redesign",
-                retry_step=RetryStepInfo(description="New Step A", intent="default"),
-                new_steps={2: "New Step B", 3: "New Step C"},
-                new_dependencies={3: [2]},
+                failed_step_description="Step A (new approach)",
+                failed_step_intent="default",
+                continuation_steps={0: "New Step B", 1: "New Step C"},
+                continuation_dependencies={1: [0]},
             )
         )
         mock_replanner_cls.return_value = mock_replanner
@@ -660,7 +661,7 @@ class TestCortexVerificationAndReplan:
         await cortex.execute("Test query")
 
         # Replanner should have been called
-        mock_replanner.replan_subgraph.assert_called()
+        mock_replanner.replan.assert_called()
 
     @pytest.mark.asyncio
     @patch.object(
@@ -703,9 +704,7 @@ class TestCortexVerificationAndReplan:
         from app.agents.replanner.replanner_agent import ReplanResult
 
         mock_replanner = AsyncMock()
-        mock_replanner.replan_subgraph = AsyncMock(
-            return_value=ReplanResult(action="give_up", new_steps={}, new_dependencies={})
-        )
+        mock_replanner.replan = AsyncMock(return_value=ReplanResult(action="give_up"))
         mock_replanner_cls.return_value = mock_replanner
 
         cortex = Cortex(make_config())
@@ -734,8 +733,8 @@ class TestCortexVerificationAndReplan:
     ):
         """Should mark blocked after max_replan_attempts"""
         plan = Plan(title="Test", steps=["Step A"], dependencies={})
-        # Simulate already having 2 attempts (max)
-        plan.replan_attempts[0] = 2
+        # Simulate already having 2 global replan attempts (max)
+        plan.global_replan_count = 2
         mock_plan_cls.return_value = plan
 
         mock_planner = AsyncMock()
@@ -762,7 +761,7 @@ class TestCortexVerificationAndReplan:
 
         # Step should be blocked without calling replanner
         assert plan.step_statuses[0] == "blocked"
-        mock_replanner.replan_subgraph.assert_not_called()
+        mock_replanner.replan.assert_not_called()
 
     @pytest.mark.asyncio
     @patch.object(
@@ -813,27 +812,28 @@ class TestCortexVerificationAndReplan:
         mock_verifier_cls.return_value = mock_verifier
 
         # Track replan calls
-        from app.agents.replanner.replanner_agent import ReplanResult, RetryStepInfo
+        from app.agents.replanner.replanner_agent import ReplanResult
 
         replan_calls = []
 
-        async def capture_replan(failed_step_idx, available_tools, **kwargs):
-            replan_calls.append(failed_step_idx)
+        async def capture_replan(**kwargs):
+            replan_calls.append(kwargs.get("failed_step_id"))
             return ReplanResult(
                 action="redesign",
-                retry_step=RetryStepInfo(description="New approach for A", intent="default"),
-                new_steps={3: "New B", 4: "New C"},
-                new_dependencies={4: [3]},
+                failed_step_description="New approach for A",
+                failed_step_intent="default",
+                continuation_steps={0: "New B", 1: "New C"},
+                continuation_dependencies={1: [0]},
             )
 
         mock_replanner = AsyncMock()
-        mock_replanner.replan_subgraph = AsyncMock(side_effect=capture_replan)
+        mock_replanner.replan = AsyncMock(side_effect=capture_replan)
         mock_replanner_cls.return_value = mock_replanner
 
         cortex = Cortex(make_config())
         await cortex.execute("Test query")
 
-        # Should replan step 0 (failed_step_idx is now an int, not a list)
+        # Should replan step 0 (failed_step_id is now an int, not a list)
         assert len(replan_calls) > 0
         assert replan_calls[0] == 0
 
@@ -892,26 +892,26 @@ class TestCortexVerificationAndReplan:
         mock_verifier_cls.return_value = mock_verifier
 
         # Track replan calls
-        from app.agents.replanner.replanner_agent import ReplanResult, RetryStepInfo
+        from app.agents.replanner.replanner_agent import ReplanResult
 
         replan_calls = []
         replan_counter = 0
 
-        async def capture_replan(failed_step_idx, available_tools, **kwargs):
+        async def capture_replan(**kwargs):
             nonlocal replan_counter
-            replan_calls.append(failed_step_idx)
-            # Return unique step IDs for each replan call
-            new_id = 10 + replan_counter
+            failed_id = kwargs.get("failed_step_id")
+            replan_calls.append(failed_id)
             replan_counter += 1
             return ReplanResult(
                 action="redesign",
-                retry_step=RetryStepInfo(description="New approach", intent="default"),
-                new_steps={new_id: "New Step"},
-                new_dependencies={},
+                failed_step_description=f"Retried step {failed_id}",
+                failed_step_intent="default",
+                continuation_steps={0: "New Step"},
+                continuation_dependencies={},
             )
 
         mock_replanner = AsyncMock()
-        mock_replanner.replan_subgraph = AsyncMock(side_effect=capture_replan)
+        mock_replanner.replan = AsyncMock(side_effect=capture_replan)
         mock_replanner_cls.return_value = mock_replanner
 
         cortex = Cortex(make_config())
@@ -964,9 +964,7 @@ class TestCortexVerificationAndReplan:
         from app.agents.replanner.replanner_agent import ReplanResult
 
         mock_replanner = AsyncMock()
-        mock_replanner.replan_subgraph = AsyncMock(
-            return_value=ReplanResult(action="give_up", new_steps={}, new_dependencies={})
-        )
+        mock_replanner.replan = AsyncMock(return_value=ReplanResult(action="give_up"))
         mock_replanner_cls.return_value = mock_replanner
 
         cortex = Cortex(make_config())
@@ -1016,7 +1014,8 @@ class TestCortexIntentDispatch:
             )
             assert cortex._get_executor_factory("generate") is gen_factory
             assert cortex._get_executor_factory("review") is review_factory
-            assert cortex._get_executor_factory("default") is None
+            # Unknown intent falls back to first configured executor
+            assert cortex._get_executor_factory("default") is gen_factory
         finally:
             del sys.modules["_test_dispatch_gen"]
             del sys.modules["_test_dispatch_rev"]
@@ -1056,9 +1055,7 @@ class TestCortexIntentDispatch:
 
         with patch("cortex.ReplannerAgent") as mock_replanner_cls:
             mock_replanner = AsyncMock()
-            mock_replanner.replan_subgraph = AsyncMock(
-                return_value=ReplanResult(action="give_up", new_steps={}, new_dependencies={})
-            )
+            mock_replanner.replan = AsyncMock(return_value=ReplanResult(action="give_up"))
             mock_replanner_cls.return_value = mock_replanner
 
             # External executor factory - mock _get_executor_factory directly
@@ -1138,15 +1135,13 @@ class TestCortexReplanContext:
         from app.agents.replanner.replanner_agent import ReplanResult
 
         mock_replanner = AsyncMock()
-        mock_replanner.replan_subgraph = AsyncMock(
-            return_value=ReplanResult(action="give_up", new_steps={}, new_dependencies={})
-        )
+        mock_replanner.replan = AsyncMock(return_value=ReplanResult(action="give_up"))
         mock_replanner_cls.return_value = mock_replanner
 
         cortex = Cortex(make_config())
         await cortex.execute("Find ZIP codes")
 
-        # After reset_step + give_up, step ends up as blocked with "Replanner gave up"
+        # After give_up, step ends up as blocked with "Replanner gave up"
         assert plan.step_statuses[0] == "blocked"
         assert "Replanner gave up" in plan.step_notes[0]
 
@@ -1168,7 +1163,7 @@ class TestCortexReplanContext:
         mock_replanner_cls,
         mock_aggregate,
     ):
-        """Replanner should receive ReplanContext with failure details"""
+        """Replanner should receive keyword arguments with failure details"""
         plan = Plan(title="Test", steps=["Step A", "Step B"], dependencies={1: [0]})
         mock_plan_cls.return_value = plan
 
@@ -1197,38 +1192,28 @@ class TestCortexReplanContext:
         mock_verifier.get_failure_reason = MagicMock(return_value="")
         mock_verifier_cls.return_value = mock_verifier
 
-        from app.agents.replanner.replanner_agent import ReplanContext, ReplanResult, RetryStepInfo
-
-        captured_kwargs = []
-
-        async def capture_replan(**kwargs):
-            captured_kwargs.append(kwargs)
-            return ReplanResult(
-                action="redesign",
-                retry_step=RetryStepInfo(description="New approach", intent="default"),
-                new_steps={2: "New Step"},
-                new_dependencies={},
-            )
+        from app.agents.replanner.replanner_agent import ReplanResult
 
         mock_replanner = AsyncMock()
-        mock_replanner.replan_subgraph = AsyncMock(side_effect=capture_replan)
+        mock_replanner.replan = AsyncMock(
+            return_value=ReplanResult(
+                action="redesign",
+                failed_step_description="New approach",
+                failed_step_intent="default",
+                continuation_steps={0: "New Step"},
+                continuation_dependencies={},
+            )
+        )
         mock_replanner_cls.return_value = mock_replanner
 
         cortex = Cortex(make_config())
         await cortex.execute("Find ZIP codes")
 
-        # replan_subgraph should have been called with context keyword argument
-        mock_replanner.replan_subgraph.assert_called()
-        call_kwargs = mock_replanner.replan_subgraph.call_args
-        # Check 'context' was passed (could be positional or keyword)
+        # replan should have been called with keyword arguments
+        mock_replanner.replan.assert_called()
+        call_kwargs = mock_replanner.replan.call_args
         assert call_kwargs is not None
-        # The context should be a ReplanContext instance
-        if call_kwargs.kwargs.get("context"):
-            ctx = call_kwargs.kwargs["context"]
-        else:
-            # might be the 3rd positional arg
-            ctx = call_kwargs.args[2] if len(call_kwargs.args) > 2 else None
-        assert ctx is not None
-        assert isinstance(ctx, ReplanContext)
-        assert ctx.original_query == "Find ZIP codes"
-        assert ctx.attempt_number == 1
+        # Verify the key arguments were passed
+        assert call_kwargs.kwargs.get("original_query") == "Find ZIP codes"
+        assert call_kwargs.kwargs.get("failed_step_id") == 0
+        assert call_kwargs.kwargs.get("attempt") == 1
