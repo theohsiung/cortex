@@ -127,6 +127,7 @@ async def main() -> None:
 
     # Run each sample
     for i, record in enumerate(records):
+        _captured_plans.clear()  # Reset to prevent cross-sample plan leakage
         sample_id = record.get("meta", {}).get("id", f"unknown_{i}")
 
         if sample_id in completed_ids:
