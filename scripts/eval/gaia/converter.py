@@ -30,12 +30,22 @@ def convert_plan_to_pred(
     }
 
 
+def _is_successful_call(call: dict) -> bool:
+    """Check if a tool call record represents a successful execution.
+
+    Handles both recording paths in Plan:
+    - add_tool_call_pending + update_tool_result: sets status="success"
+    - add_tool_call (legacy): has "result" key but no "status" key
+    """
+    return call.get("status") == "success" or ("result" in call and "status" not in call)
+
+
 def _build_nodes(plan: Any) -> list[dict]:
     """Convert plan steps to LLM-planning node format."""
     nodes = []
     for idx in sorted(plan.steps.keys()):
         tool_history = plan.step_tool_history.get(idx, [])
-        successful_calls = [c for c in tool_history if c.get("status") == "success"]
+        successful_calls = [c for c in tool_history if _is_successful_call(c)]
         first_tool = successful_calls[0]["tool"] if successful_calls else None
 
         nodes.append(
@@ -71,7 +81,7 @@ def _build_tool_calls(plan: Any) -> list[dict]:
     call_idx = 0
     for step_idx in sorted(plan.steps.keys()):
         for call in plan.step_tool_history.get(step_idx, []):
-            if call.get("status") != "success":
+            if not _is_successful_call(call):
                 continue
             tool_calls.append(
                 {
@@ -93,7 +103,7 @@ def _extract_final_answer(plan: Any, final_result_text: str) -> dict:
     # Search for submit_final_answer tool call
     for step_idx in sorted(plan.steps.keys()):
         for call in plan.step_tool_history.get(step_idx, []):
-            if call.get("tool") == "submit_final_answer" and call.get("status") == "success":
+            if call.get("tool") == "submit_final_answer" and _is_successful_call(call):
                 args = call.get("args", {})
                 return {
                     "answer_type": args.get("answer_type", "string"),
