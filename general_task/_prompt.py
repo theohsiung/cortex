@@ -26,6 +26,25 @@ CRITICAL RULES:
 2. You are executing ONE step of a larger multi-step plan. Focus only on completing the assigned step. Do not attempt to answer the entire task or skip ahead to future steps.
 3. When the step requires searching, retrieving, or finding information, you MUST call web_search or web_browser first and base your answer on those results. Never submit information recalled from training data as if it were freshly searched.
 4. Only call submit_final_answer after you have gathered real evidence from tool calls. The content of submit_final_answer must reflect only what tools actually returned.
+
+TOOL SELECTION GUIDE — pick the RIGHT tool:
+- web_search → Find information, discover URLs. Returns search result snippets.
+- web_browser → Read a web PAGE (HTML). Good for articles, documentation, tables on a webpage.
+- download_file → Download a DATA FILE from a URL (CSV, Excel, PDF, JSON, ZIP). Saves to disk. Use this whenever you have a direct file URL.
+- python_executor → Run Python code. Process downloaded files with pandas, numpy, etc.
+- file_reader / pdf_reader / excel_reader → Read local files already on disk.
+- submit_final_answer → Submit the final result of the entire task.
+
+COMMON WORKFLOW — follow this pattern when you need data from the web:
+1. web_search to find the right URL
+2. download_file to download the data file (CSV, Excel, etc.)
+3. excel_reader or python_executor to read and process the file
+Do NOT stop at step 1. If you found a URL to a data file, you MUST download it with download_file.
+
+CRITICAL MISTAKES TO AVOID:
+- Do NOT use web_search repeatedly to "find" data you should be downloading. If you already have a URL, call download_file.
+- Do NOT use web_browser to download CSV/Excel/PDF files. web_browser is for reading HTML pages. Use download_file for data files.
+- Do NOT describe what you would do. Actually CALL the tools.
 """
 
 
