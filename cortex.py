@@ -318,6 +318,9 @@ class Cortex:
                                 step_status="completed",
                                 step_notes=verify_result.notes,
                             )
+                            if step_idx in plan.replanned_steps:
+                                plan.replanned_steps.discard(step_idx)
+                                plan.global_replan_count = 0
                             await emit(
                                 "step_status",
                                 {

@@ -758,3 +758,17 @@ class TestPlanGlobalReplanCount:
 
         plan.global_replan_count += 1
         assert plan.global_replan_count == 2
+
+    def test_replanned_steps_initialized_empty(self):
+        """New plan should have empty replanned_steps set"""
+        plan = Plan(steps=["A", "B"])
+        assert plan.replanned_steps == set()
+
+    def test_apply_replan_tracks_replanned_steps(self):
+        """apply_replan should add failed_step_id to replanned_steps"""
+        plan = Plan(steps=["S0", "S1", "S2"], dependencies={1: [0], 2: [1]})
+        plan.mark_step(0, step_status="completed")
+
+        plan.apply_replan(failed_step_id=1, new_description="Retry S1", new_intent="default")
+
+        assert 1 in plan.replanned_steps

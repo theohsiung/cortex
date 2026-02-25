@@ -61,6 +61,7 @@ class Plan:
 
         # Global replan counter (shared across all steps)
         self.global_replan_count: int = 0
+        self.replanned_steps: set[int] = set()
 
         # Initialize step intents: fill missing indices with "default"
         self.step_intents: dict[int, str] = {}
@@ -363,6 +364,7 @@ class Plan:
         self.step_tool_history.pop(failed_step_id, None)
         self.step_files.pop(failed_step_id, None)
         self.step_intents[failed_step_id] = new_intent or "default"
+        self.replanned_steps.add(failed_step_id)
 
         # 3. 加入 continuation steps
         if continuation_steps:

@@ -772,6 +772,68 @@ class TestCortexVerificationAndReplan:
     @patch("cortex.ExecutorAgent")
     @patch("cortex.PlannerAgent")
     @patch("cortex.Plan")
+    async def test_replan_budget_resets_on_replanned_step_success(
+        self,
+        mock_plan_cls,
+        mock_planner_cls,
+        mock_executor_cls,
+        mock_verifier_cls,
+        mock_replanner_cls,
+        mock_aggregate,
+    ):
+        """global_replan_count should reset to 0 when a replanned step passes verification"""
+        plan = Plan(title="Test", steps=["Step A", "Step B"], dependencies={1: [0]})
+        mock_plan_cls.return_value = plan
+
+        mock_planner = AsyncMock()
+        mock_planner.create_plan = AsyncMock(return_value=None)
+        mock_planner_cls.return_value = mock_planner
+
+        mock_executor = AsyncMock()
+        mock_executor.execute_step = AsyncMock(return_value="Done")
+        mock_executor_cls.return_value = mock_executor
+
+        # Step 0: fail → replan → pass; Step 1: pass
+        mock_verifier = MagicMock()
+        mock_verifier.verify_step = MagicMock(
+            side_effect=[
+                VerifyResult(passed=False, notes="[FAIL]: test"),
+                VerifyResult(passed=True, notes="OK"),
+                VerifyResult(passed=True, notes="OK"),
+            ]
+        )
+        mock_verifier.evaluate_output = AsyncMock(
+            return_value=VerifyResult(passed=True, notes="Verified")
+        )
+        mock_verifier_cls.return_value = mock_verifier
+
+        from app.agents.replanner.replanner_agent import ReplanResult
+
+        mock_replanner = AsyncMock()
+        mock_replanner.replan = AsyncMock(
+            return_value=ReplanResult(
+                action="redesign",
+                failed_step_description="Step A (retry)",
+                failed_step_intent="default",
+            )
+        )
+        mock_replanner_cls.return_value = mock_replanner
+
+        cortex = Cortex(make_config())
+        await cortex.execute("Test query")
+
+        # After replanned step 0 succeeds, budget should be reset
+        assert plan.global_replan_count == 0
+
+    @pytest.mark.asyncio
+    @patch.object(
+        Cortex, "_aggregate_results", new_callable=AsyncMock, return_value="Aggregated result"
+    )
+    @patch("cortex.ReplannerAgent")
+    @patch("cortex.Verifier")
+    @patch("cortex.ExecutorAgent")
+    @patch("cortex.PlannerAgent")
+    @patch("cortex.Plan")
     async def test_downstream_steps_included_in_replan(
         self,
         mock_plan_cls,
