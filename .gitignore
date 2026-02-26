@@ -29,6 +29,7 @@ scripts/example_compare.py
 app/agents/coding_agent/
 tools.py
 note.txt
+scripts/eval
 
 # Runtime output
 tmp/
