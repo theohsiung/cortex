@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.agents.replanner.replanner_agent import FailureRecord
+
 REPLANNER_SYSTEM_PROMPT = """You are a plan redesign specialist. When a step fails, you analyze what went wrong and design a new approach.
 
 ## Your Task
@@ -71,6 +76,7 @@ def build_replan_prompt(
     available_intents: dict[str, str] | None = None,
     attempt: int = 1,
     max_attempts: int = 3,
+    failure_history: list[FailureRecord] | None = None,
 ) -> str:
     """Build the prompt for replanning.
 
@@ -112,6 +118,32 @@ You MUST assign one of these intents to each step. Do NOT invent or use unlisted
 {intents_lines}
 """
 
+    # Build failure history section
+    failure_history_section = ""
+    if failure_history:
+        history_lines = ["## Past Failed Attempts\n"]
+        for i, record in enumerate(failure_history, 1):
+            history_lines.append(f"### Attempt {i}")
+            history_lines.append(f"- Task: {record.step_description}")
+            history_lines.append(f"- Failure reason: {record.failure_notes}")
+            if record.tool_history:
+                history_lines.append("- Tool calls:")
+                for call in record.tool_history:
+                    tool = call.get("tool", "?")
+                    args = call.get("args", {})
+                    result = call.get("result", "")
+                    args_str = (
+                        ", ".join(f'{k}="{v}"' for k, v in args.items())
+                        if isinstance(args, dict)
+                        else str(args)
+                    )
+                    history_lines.append(f"  - {tool}({args_str}) -> {result}")
+            history_lines.append("")
+        history_lines.append(
+            "Based on the above failures, avoid repeating the same approaches and try a different strategy.\n"
+        )
+        failure_history_section = "\n".join(history_lines)
+
     attempt_note = ""
     if attempt > 1:
         attempt_note = (
@@ -146,7 +178,7 @@ You MUST assign one of these intents to each step. Do NOT invent or use unlisted
 {tools_section}
 {intents_section}
 ---
-{attempt_note}
+{failure_history_section}{attempt_note}
 **Remember:**
 - The failed step description must do ONE thing only (different approach from the original)
 - All downstream steps will be removed — add continuation steps for any remaining work needed to complete the original task

@@ -9,7 +9,7 @@ from typing import Any, Callable, Union
 
 from app.agents.executor.executor_agent import ExecutorAgent
 from app.agents.planner.planner_agent import PlannerAgent
-from app.agents.replanner.replanner_agent import ReplannerAgent
+from app.agents.replanner.replanner_agent import FailureRecord, ReplannerAgent
 from app.agents.verifier.verifier import Verifier
 from app.config import CortexConfig
 from app.sandbox.sandbox_manager import SandboxManager
@@ -177,6 +177,7 @@ class Cortex:
             logger.info("=== EXECUTION PHASE ===")
             step_outputs: dict[int, str] = {}
             failed_outputs: dict[int, str] = {}
+            failure_history: list[FailureRecord] = []
             semaphore = asyncio.Semaphore(self.config.tuning.max_concurrent_steps)
 
             async def execute_with_limit(
@@ -318,6 +319,7 @@ class Cortex:
                                 step_status="completed",
                                 step_notes=verify_result.notes,
                             )
+                            failure_history.clear()
                             if step_idx in plan.replanned_steps:
                                 plan.replanned_steps.discard(step_idx)
                                 plan.global_replan_count = 0
@@ -410,6 +412,16 @@ class Cortex:
                                     attempt=plan.global_replan_count,
                                     max_attempts=max_replan,
                                     available_tools=available_tools,
+                                    failure_history=list(failure_history),
+                                )
+
+                                # Record current failure for next replan attempt
+                                failure_history.append(
+                                    FailureRecord(
+                                        step_description=step_desc,
+                                        failure_notes=verify_result.notes,
+                                        tool_history=list(plan.step_tool_history.get(step_idx, [])),
+                                    )
                                 )
 
                                 if replan_result.action == "redesign":

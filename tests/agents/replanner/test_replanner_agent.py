@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.agents.replanner.replanner_agent import (
+    FailureRecord,
     ReplannerAgent,
     ReplanResult,
 )
@@ -590,3 +591,154 @@ class TestReplannerIntents:
         with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
             replanner = ReplannerAgent(plan_id="p5", model=MagicMock())
         assert replanner.available_intents == {}
+
+
+class TestFailureRecord:
+    """Tests for FailureRecord dataclass"""
+
+    def test_failure_record_creation(self):
+        """Should create FailureRecord with all fields"""
+        record = FailureRecord(
+            step_description="Search for weather data",
+            failure_notes="[FAIL]: API returned 403 | No data retrieved",
+            tool_history=[
+                {
+                    "tool": "web_search",
+                    "args": {"query": "weather"},
+                    "status": "success",
+                    "result": "403 Forbidden",
+                }
+            ],
+        )
+        assert record.step_description == "Search for weather data"
+        assert record.failure_notes == "[FAIL]: API returned 403 | No data retrieved"
+        assert len(record.tool_history) == 1
+        assert record.tool_history[0]["tool"] == "web_search"
+
+    def test_failure_record_empty_tool_history(self):
+        """Should work with empty tool history"""
+        record = FailureRecord(
+            step_description="Some step",
+            failure_notes="[FAIL]: something wrong",
+            tool_history=[],
+        )
+        assert record.tool_history == []
+
+
+class TestFailureHistoryInPrompt:
+    """Tests for failure history appearing in replan prompt"""
+
+    def setup_method(self):
+        TaskManager.remove_plan("test_plan")
+
+    def teardown_method(self):
+        TaskManager.remove_plan("test_plan")
+
+    def _make_agent(self, plan):
+        TaskManager.set_plan("test_plan", plan)
+        with patch("app.agents.replanner.replanner_agent._get_llm_agent"):
+            return ReplannerAgent(plan_id="test_plan", model=MagicMock())
+
+    def _default_prompt_kwargs(self, **overrides):
+        defaults = dict(
+            original_query="Get weather",
+            failed_step_id=1,
+            failed_step_desc="Search weather",
+            failed_output="output",
+            failed_reason="[FAIL]: timeout",
+            failed_tool_history=[],
+            attempt=2,
+            max_attempts=3,
+            available_tools=["tool_a"],
+        )
+        defaults.update(overrides)
+        return defaults
+
+    def test_prompt_includes_failure_history(self):
+        """Should include past failure records in prompt"""
+        plan = Plan(steps=["S0", "S1"], dependencies={1: [0]})
+        plan.mark_step(0, step_status="completed")
+        agent = self._make_agent(plan)
+
+        records = [
+            FailureRecord(
+                step_description="Search weather with web_search",
+                failure_notes="[FAIL]: API returned 403",
+                tool_history=[
+                    {
+                        "tool": "web_search",
+                        "args": {"query": "weather"},
+                        "status": "success",
+                        "result": "403",
+                    }
+                ],
+            ),
+        ]
+
+        prompt = agent._build_prompt(
+            **self._default_prompt_kwargs(),
+            failure_history=records,
+        )
+
+        assert "Search weather with web_search" in prompt
+        assert "API returned 403" in prompt
+        assert "web_search" in prompt
+
+    def test_prompt_shows_multiple_failure_records(self):
+        """Should show all past failure records in order"""
+        plan = Plan(steps=["S0", "S1"], dependencies={1: [0]})
+        plan.mark_step(0, step_status="completed")
+        agent = self._make_agent(plan)
+
+        records = [
+            FailureRecord(
+                step_description="Attempt with API v1",
+                failure_notes="[FAIL]: v1 deprecated",
+                tool_history=[],
+            ),
+            FailureRecord(
+                step_description="Attempt with API v2",
+                failure_notes="[FAIL]: auth required",
+                tool_history=[
+                    {
+                        "tool": "fetch_url",
+                        "args": {"url": "http://api.v2"},
+                        "status": "success",
+                        "result": "401",
+                    }
+                ],
+            ),
+        ]
+
+        prompt = agent._build_prompt(
+            **self._default_prompt_kwargs(attempt=3, max_attempts=5),
+            failure_history=records,
+        )
+
+        assert "v1 deprecated" in prompt
+        assert "auth required" in prompt
+        assert "Attempt with API v1" in prompt
+        assert "Attempt with API v2" in prompt
+
+    def test_prompt_no_failure_history_section_when_empty(self):
+        """Should not include failure history section when no past failures"""
+        plan = Plan(steps=["S0", "S1"], dependencies={1: [0]})
+        plan.mark_step(0, step_status="completed")
+        agent = self._make_agent(plan)
+
+        prompt = agent._build_prompt(
+            **self._default_prompt_kwargs(attempt=1),
+            failure_history=[],
+        )
+
+        assert "Past Failed Attempts" not in prompt
+
+    def test_prompt_no_failure_history_section_when_none(self):
+        """Should not include failure history section when None (backward compat)"""
+        plan = Plan(steps=["S0", "S1"], dependencies={1: [0]})
+        plan.mark_step(0, step_status="completed")
+        agent = self._make_agent(plan)
+
+        prompt = agent._build_prompt(**self._default_prompt_kwargs())
+
+        assert "Past Failed Attempts" not in prompt

@@ -22,6 +22,15 @@ def _get_llm_agent():
 
 
 @dataclass
+class FailureRecord:
+    """Record of a single failed replan attempt."""
+
+    step_description: str
+    failure_notes: str
+    tool_history: list[dict]
+
+
+@dataclass
 class ReplanResult:
     """Result from replanning operation.
 
@@ -98,6 +107,7 @@ class ReplannerAgent(BaseAgent):
         attempt: int,
         max_attempts: int,
         available_tools: list[str],
+        failure_history: list[FailureRecord] | None = None,
     ) -> str:
         """Build the prompt for replanning."""
         assert self.plan is not None
@@ -146,6 +156,7 @@ class ReplannerAgent(BaseAgent):
             available_intents=self.available_intents,
             attempt=attempt,
             max_attempts=max_attempts,
+            failure_history=failure_history,
         )
 
     def _parse_response(self, response: str) -> ReplanResult | None:
@@ -214,6 +225,7 @@ class ReplannerAgent(BaseAgent):
         attempt: int,
         max_attempts: int,
         available_tools: list[str],
+        failure_history: list[FailureRecord] | None = None,
     ) -> ReplanResult:
         """Redesign the remaining plan after a step failure.
 
@@ -231,6 +243,7 @@ class ReplannerAgent(BaseAgent):
             attempt=attempt,
             max_attempts=max_attempts,
             available_tools=available_tools,
+            failure_history=failure_history,
         )
 
         for attempt_num in range(max_parse_retries):
