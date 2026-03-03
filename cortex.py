@@ -93,6 +93,7 @@ class Cortex:
     async def execute(
         self,
         query: str,
+        history: list[dict] | None = None,
         on_event: Callable[[str, dict[str, Any]], Any] | None = None,
     ) -> str:
         """Execute a task with planning and execution.
