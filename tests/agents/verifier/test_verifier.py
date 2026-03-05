@@ -370,10 +370,10 @@ class TestVerifierEvaluationPrompt:
         prompt = verifier.build_evaluation_prompt(
             "Search the web", "Found result X", tool_call_count=2
         )
-        # Should require goal achievement, not just any output
-        assert "stated goal" in prompt.lower() or "step's goal" in prompt.lower()
-        # Should ask for what was accomplished and what's missing on failure
-        assert "what" in prompt.lower() and "missing" in prompt.lower()
+        # Should focus on process verification, not answer correctness
+        assert "process" in prompt.lower()
+        # Should check executor performed relevant actions
+        assert "executor" in prompt.lower()
         # Should NOT use the old lenient criteria
         assert "even without tool calls" not in prompt
 
@@ -383,7 +383,7 @@ class TestVerifierEvaluationPrompt:
         prompt = verifier.build_evaluation_prompt(
             "Analyze input", "The input looks correct", tool_call_count=0
         )
-        assert "even without tool calls" in prompt
+        assert "relevant response" in prompt.lower()
 
     @pytest.mark.asyncio
     async def test_evaluate_output_passes_tool_call_count_to_llm(self):

@@ -9,7 +9,7 @@ from typing import Any, Callable, Union
 
 from app.agents.executor.executor_agent import ExecutorAgent
 from app.agents.planner.planner_agent import PlannerAgent
-from app.agents.replanner.replanner_agent import ReplanContext, ReplannerAgent
+from app.agents.replanner.replanner_agent import FailureRecord, ReplannerAgent
 from app.agents.verifier.verifier import Verifier
 from app.config import CortexConfig
 from app.sandbox.sandbox_manager import SandboxManager
@@ -44,7 +44,6 @@ class Cortex:
         self.config = config
         self._model = None  # Lazy-created LLM
         self._executor_entries = {e.intent: e for e in config.executors}
-        self.history: list[dict] = []
 
         # Create sandbox manager if any sandbox feature is enabled
         sandbox_needed = (
@@ -68,10 +67,18 @@ class Cortex:
         return self._model
 
     def _get_executor_factory(self, intent: str):
-        """Get executor factory for an intent via importlib, or None."""
+        """Get executor factory for an intent via importlib, or None.
+
+        找不到對應 intent 時 fallback 到第一個設定的 executor
+        (例如 planner 給 "default" 但 config 只有 "general")。
+        """
         entry = self._executor_entries.get(intent)
         if entry:
             return entry.get_factory()
+        if self.config.executors:
+            fallback = self.config.executors[0]
+            logger.info("Intent %r 找不到，fallback 到 %r", intent, fallback.intent)
+            return fallback.get_factory()
         return None
 
     def _get_available_intents(self) -> dict[str, str]:
@@ -85,6 +92,7 @@ class Cortex:
     async def execute(
         self,
         query: str,
+        history: list[dict] | None = None,
         on_event: Callable[[str, dict[str, Any]], Any] | None = None,
     ) -> str:
         """Execute a task with planning and execution.
@@ -101,9 +109,6 @@ class Cortex:
                     await on_event(event_type, data or {})
                 else:
                     on_event(event_type, data or {})
-
-        # Record user query in history
-        self.history.append({"role": "user", "content": query})
 
         # Create new plan for this task
         plan_id = f"plan_{int(time.time())}"
@@ -135,7 +140,25 @@ class Cortex:
                 extra_tools=planner_sandbox_tools,
                 available_intents=self._get_available_intents(),
             )
-            await planner.create_plan(query)
+            # Build planner query with history context
+            if history:
+                recent = history[-20:]  # last 3 rounds
+                cleaned = []
+                for m in recent:
+                    content = m["content"]
+                    if m["role"] == "assistant" and "---" in content:
+                        content = content.split("---")[0].strip()
+                    cleaned.append(f"{m['role'].capitalize()}: {content}")
+                history_text = "\n".join(cleaned)
+                planner_query = (
+                    f"## Past conversation (for reference)\n{history_text}\n\n"
+                    f"## Current task\n{query}"
+                )
+            else:
+                planner_query = query
+
+            logger.info("\033[95m*** HISTORY (cleaned) ***:\n%s\033[0m", planner_query)
+            await planner.create_plan(planner_query)
             logger.info("Plan created with %d steps", len(plan.steps))
 
             # Emit initial plan structure
@@ -148,7 +171,7 @@ class Cortex:
                 },
             )
 
-            for i, step in enumerate(plan.steps):
+            for i, step in plan.steps.items():
                 logger.info("  Step %d: %s", i, step)
 
             # Initialize verifier and replanner
@@ -169,6 +192,7 @@ class Cortex:
             logger.info("=== EXECUTION PHASE ===")
             step_outputs: dict[int, str] = {}
             failed_outputs: dict[int, str] = {}
+            failure_history: list[FailureRecord] = []
             semaphore = asyncio.Semaphore(self.config.tuning.max_concurrent_steps)
 
             async def execute_with_limit(
@@ -183,9 +207,7 @@ class Cortex:
                 full_context = f"{query}\n\n{dep_context}" if dep_context else query
 
                 async with semaphore:
-                    step_desc = (
-                        plan.steps[step_idx] if step_idx < len(plan.steps) else f"Step {step_idx}"
-                    )
+                    step_desc = plan.steps.get(step_idx, f"Step {step_idx}")
                     logger.info("▶ Executing step %d: %s", step_idx, step_desc)
                     plan.mark_step(step_idx, step_status="in_progress")
                     await emit("step_status", {"step_idx": step_idx, "status": "in_progress"})
@@ -222,6 +244,24 @@ class Cortex:
                                 result = await executor.execute(
                                     query_text, exec_context=exec_context
                                 )
+                                # Nudge retry if 0 tool calls
+                                tool_history = plan.step_tool_history.get(step_idx, [])
+                                if not tool_history:
+                                    logger.warning(
+                                        "Step %d had 0 tool calls, retrying with nudge",
+                                        step_idx,
+                                    )
+                                    nudge = (
+                                        f"Your previous response for step {step_idx} contained NO tool calls. "
+                                        f"You only described what should be done instead of actually doing it.\n\n"
+                                        f"You MUST call the appropriate tool(s) now to complete this step:\n"
+                                        f"{step_desc}\n\n"
+                                        f"Call the tool directly. Do NOT explain — just execute."
+                                    )
+                                    exec_context_retry = ExecutionContext(step_index=step_idx)
+                                    result = await executor.execute(
+                                        nudge, exec_context=exec_context_retry
+                                    )
                                 output = result.output
                             else:
                                 # Default internal executor
@@ -273,11 +313,7 @@ class Cortex:
 
                         # LLM evaluation for all steps that passed mechanical check
                         if verify_result.passed:
-                            step_desc = (
-                                plan.steps[step_idx]
-                                if step_idx < len(plan.steps)
-                                else f"Step {step_idx}"
-                            )
+                            step_desc = plan.steps.get(step_idx, f"Step {step_idx}")
                             tool_calls = plan.step_tool_history.get(step_idx, [])
                             completed_calls = sum(
                                 1 for c in tool_calls if c.get("status") == "success"
@@ -298,6 +334,10 @@ class Cortex:
                                 step_status="completed",
                                 step_notes=verify_result.notes,
                             )
+                            failure_history.clear()
+                            if step_idx in plan.replanned_steps:
+                                plan.replanned_steps.discard(step_idx)
+                                plan.global_replan_count = 0
                             await emit(
                                 "step_status",
                                 {
@@ -336,18 +376,14 @@ class Cortex:
                                     verify_result.notes,
                                 )
 
-                            # Save failure context for replanner
-                            plan.mark_step(
-                                step_idx,
-                                step_notes=verify_result.notes,
-                            )
+                            # Save failure context
                             failed_outputs[step_idx] = result
+                            step_desc = plan.steps.get(step_idx, f"Step {step_idx}")
 
-                            attempts = plan.replan_attempts.get(step_idx, 0)
                             max_replan = self.config.tuning.max_replan_attempts
-                            if attempts >= max_replan:
+                            if plan.global_replan_count >= max_replan:
                                 logger.error(
-                                    "✗ Step %d blocked - max replan attempts (%d) reached",
+                                    "✗ Step %d blocked - max global replan attempts (%d) reached",
                                     step_idx,
                                     max_replan,
                                 )
@@ -365,90 +401,58 @@ class Cortex:
                                     },
                                 )
                             else:
-                                # Replan the failed step and downstream
-                                downstream = plan.get_downstream_steps(step_idx)
-                                steps_to_replan = [step_idx] + downstream
+                                plan.global_replan_count += 1
                                 logger.info(
-                                    "🔄 REPLANNING: step %d + %d downstream steps (attempt %d/%d)",
+                                    "🔄 REPLANNING after step %d failure (global attempt %d/%d)",
                                     step_idx,
-                                    len(downstream),
-                                    attempts + 1,
+                                    plan.global_replan_count,
                                     max_replan,
                                 )
-                                logger.info("  Steps to replan: %s", steps_to_replan)
-                                logger.info("  Before dependencies: %s", dict(plan.dependencies))
 
                                 await emit(
                                     "replanning",
                                     {
                                         "step_idx": step_idx,
-                                        "downstream": downstream,
-                                        "attempt": attempts + 1,
+                                        "attempt": plan.global_replan_count,
                                     },
                                 )
 
-                                replan_ctx = ReplanContext(
-                                    original_query=query,
-                                    failed_step_notes={
-                                        idx: plan.step_notes.get(plan.steps[idx], "")
-                                        for idx in steps_to_replan
-                                        if idx < len(plan.steps)
-                                    },
-                                    failed_step_outputs={
-                                        idx: failed_outputs.get(idx, "") for idx in steps_to_replan
-                                    },
-                                    failed_tool_history={
-                                        idx: plan.step_tool_history.get(idx, [])
-                                        for idx in steps_to_replan
-                                    },
-                                    attempt_number=attempts + 1,
+                                replan_result = await replanner.replan(
+                                    original_query=planner_query,
+                                    failed_step_id=step_idx,
+                                    failed_step_desc=step_desc,
+                                    failed_output=failed_outputs.get(step_idx, ""),
+                                    failed_reason=verify_result.notes,
+                                    failed_tool_history=plan.step_tool_history.get(step_idx, []),
+                                    attempt=plan.global_replan_count,
                                     max_attempts=max_replan,
+                                    available_tools=available_tools,
+                                    failure_history=list(failure_history),
                                 )
 
-                                replan_result = await replanner.replan_subgraph(
-                                    steps_to_replan=steps_to_replan,
-                                    available_tools=available_tools,
-                                    context=replan_ctx,
+                                # Record current failure for next replan attempt
+                                failure_history.append(
+                                    FailureRecord(
+                                        step_description=step_desc,
+                                        failure_notes=verify_result.notes,
+                                        tool_history=list(plan.step_tool_history.get(step_idx, [])),
+                                    )
                                 )
-                                plan.replan_attempts[step_idx] = attempts + 1
 
                                 if replan_result.action == "redesign":
+                                    plan.apply_replan(
+                                        failed_step_id=step_idx,
+                                        new_description=replan_result.failed_step_description,
+                                        new_intent=replan_result.failed_step_intent,
+                                        continuation_steps=replan_result.continuation_steps,
+                                        continuation_dependencies=replan_result.continuation_dependencies,
+                                        continuation_intents=replan_result.continuation_intents,
+                                    )
+                                    new_count = len(replan_result.continuation_steps) + 1
                                     logger.info(
-                                        "✓ Replanner redesigned with %d new steps",
-                                        len(replan_result.new_steps),
+                                        "✓ Replanner redesigned plan with %d new steps",
+                                        new_count,
                                     )
-                                    for i, new_step in enumerate(replan_result.new_steps):
-                                        logger.info("  New step %d: %s", i, new_step)
-
-                                    # Find last completed step index
-                                    completed_indices = [
-                                        i
-                                        for i, step in enumerate(plan.steps)
-                                        if plan.step_statuses[step] == "completed"
-                                    ]
-                                    insert_after = (
-                                        max(completed_indices) if completed_indices else -1
-                                    )
-                                    logger.info("  Insert after step: %d", insert_after)
-
-                                    # Update plan DAG
-                                    logger.info(
-                                        "  Replanner new_dependencies: %s",
-                                        replan_result.new_dependencies,
-                                    )
-                                    plan.remove_steps(steps_to_replan)
-                                    plan.add_steps(
-                                        replan_result.new_steps,
-                                        replan_result.new_dependencies,
-                                        insert_after=insert_after,
-                                        new_intents=replan_result.new_intents,
-                                    )
-                                    logger.info(
-                                        "  After dependencies: %s",
-                                        dict(plan.dependencies),
-                                    )
-
-                                    # Emit updated plan
                                     await emit(
                                         "plan_updated",
                                         {
@@ -458,21 +462,11 @@ class Cortex:
                                         },
                                     )
                                 else:
-                                    # Replanner gave up
                                     logger.error("✗ Replanner gave up on step %d", step_idx)
-                                    existing_notes = plan.step_notes.get(
-                                        plan.steps[step_idx] if step_idx < len(plan.steps) else "",
-                                        "",
-                                    )
-                                    gave_up_notes = (
-                                        f"{existing_notes} | Replanner gave up"
-                                        if existing_notes
-                                        else "Replanner gave up"
-                                    )
                                     plan.mark_step(
                                         step_idx,
                                         step_status="blocked",
-                                        step_notes=gave_up_notes,
+                                        step_notes="Replanner gave up",
                                     )
                                     await emit(
                                         "step_status",
@@ -494,14 +488,11 @@ class Cortex:
             )
             final_result = await self._aggregate_results(query, plan, step_outputs)
 
-            # Record result in history
-            self.history.append({"role": "assistant", "content": final_result})
-
             logger.info("=== FINAL PLAN STATE ===")
-            for i, step in enumerate(plan.steps):
-                status = plan.step_statuses.get(step, "unknown")
+            for i, step in plan.steps.items():
+                status = plan.step_statuses.get(i, "unknown")
                 intent = plan.step_intents.get(i, "default")
-                notes = plan.step_notes.get(step, "")
+                notes = plan.step_notes.get(i, "")
                 deps = plan.dependencies.get(i, [])
                 tool_count = len(plan.step_tool_history.get(i, []))
                 files = plan.step_files.get(i, [])
@@ -537,7 +528,7 @@ class Cortex:
         # Build context from all step outputs in order
         outputs_text = "\n\n".join(
             f"=== Step {i}: {plan.steps[i]} ===\n{step_outputs.get(i, '[No output]')}"
-            for i in range(len(plan.steps))
+            for i in sorted(plan.steps.keys())
         )
 
         aggregation_prompt = f"""Based on the following task and step outputs, synthesize a final coherent result.

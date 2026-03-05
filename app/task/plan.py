@@ -1,4 +1,8 @@
-"""Execution plan with steps, dependencies, and status tracking."""
+"""Execution plan with steps, dependencies, and status tracking.
+
+Steps are stored as dict[int, str] where keys are stable integer IDs.
+IDs are monotonically increasing, ensuring stability during replan operations.
+"""
 
 from __future__ import annotations
 
@@ -29,34 +33,43 @@ class Plan:
         step_intents: dict[int, str] | None = None,
     ) -> None:
         self.title = title
-        self.steps = steps if steps else []
+        self._next_id = 0
+        self.steps: dict[int, str] = {}
+        self.step_statuses: dict[int, str] = {}
+        self.step_notes: dict[int, str] = {}
+
+        if steps:
+            for desc in steps:
+                sid = self._next_id
+                self.steps[sid] = desc
+                self.step_statuses[sid] = "not_started"
+                self.step_notes[sid] = ""
+                self._next_id += 1
 
         # Auto-generate sequential dependencies if not provided
         if dependencies is not None:
             self.dependencies = self._normalize_dependencies(dependencies)
         elif len(self.steps) > 1:
-            self.dependencies = {i: [i - 1] for i in range(1, len(self.steps))}
+            ids = sorted(self.steps.keys())
+            self.dependencies = {ids[i]: [ids[i - 1]] for i in range(1, len(ids))}
         else:
             self.dependencies = {}
-
-        # Initialize status tracking
-        self.step_statuses: dict[str, str] = {step: "not_started" for step in self.steps}
-        self.step_notes: dict[str, str] = {step: "" for step in self.steps}
 
         # Initialize tool history and file tracking
         self.step_tool_history: dict[int, list[dict]] = {}
         self.step_files: dict[int, list[str]] = {}
 
-        # Initialize replan tracking
-        self.replan_attempts: dict[int, int] = {}
+        # Global replan counter (shared across all steps)
+        self.global_replan_count: int = 0
+        self.replanned_steps: set[int] = set()
 
         # Initialize step intents: fill missing indices with "default"
         self.step_intents: dict[int, str] = {}
         if step_intents:
             self.step_intents.update(step_intents)
-        for i in range(len(self.steps)):
-            if i not in self.step_intents:
-                self.step_intents[i] = "default"
+        for sid in self.steps:
+            if sid not in self.step_intents:
+                self.step_intents[sid] = "default"
 
     def get_step_intent(self, idx: int) -> str:
         """Get the intent for a step, defaulting to 'default' if not found."""
@@ -69,31 +82,38 @@ class Plan:
         dependencies: dict[int, list[int]] | None = None,
         step_intents: dict[int, str] | None = None,
     ) -> None:
-        """Update plan properties."""
+        """Update plan properties. Used by planner for initial plan creation/modification."""
         if title is not None:
             self.title = title
 
         if steps is not None:
-            self.steps = steps
-            # Reinitialize status tracking for new steps
-            self.step_statuses = {step: "not_started" for step in self.steps}
-            self.step_notes = {step: "" for step in self.steps}
-
-            # Reinitialize tool history and file tracking
+            # Reset everything for new steps
+            self._next_id = 0
+            self.steps = {}
+            self.step_statuses = {}
+            self.step_notes = {}
             self.step_tool_history = {}
             self.step_files = {}
-
-            # Reinitialize step intents
             self.step_intents = {}
+
+            for desc in steps:
+                sid = self._next_id
+                self.steps[sid] = desc
+                self.step_statuses[sid] = "not_started"
+                self.step_notes[sid] = ""
+                self._next_id += 1
+
+            # Set intents
             if step_intents:
                 self.step_intents.update(step_intents)
-            for i in range(len(self.steps)):
-                if i not in self.step_intents:
-                    self.step_intents[i] = "default"
+            for sid in self.steps:
+                if sid not in self.step_intents:
+                    self.step_intents[sid] = "default"
 
             # Auto-generate dependencies if not provided
             if dependencies is None and len(self.steps) > 1:
-                self.dependencies = {i: [i - 1] for i in range(1, len(self.steps))}
+                ids = sorted(self.steps.keys())
+                self.dependencies = {ids[i]: [ids[i - 1]] for i in range(1, len(ids))}
 
         if dependencies is not None:
             self.dependencies = self._normalize_dependencies(dependencies)
@@ -105,22 +125,20 @@ class Plan:
         step_notes: str | None = None,
     ) -> None:
         """Mark a step with status and/or notes."""
-        if step_index < 0 or step_index >= len(self.steps):
+        if step_index not in self.steps:
             raise ValueError(f"Invalid step_index: {step_index}")
 
-        step = self.steps[step_index]
-
         if step_status is not None:
-            self.step_statuses[step] = step_status
+            self.step_statuses[step_index] = step_status
 
         if step_notes is not None:
-            self.step_notes[step] = step_notes
+            self.step_notes[step_index] = step_notes
 
     def add_tool_call(
         self, step_index: int, tool: str, args: dict, result: Any, timestamp: str
     ) -> None:
         """Record a tool call for a step."""
-        if step_index < 0 or step_index >= len(self.steps):
+        if step_index not in self.steps:
             raise ValueError(f"Invalid step_index: {step_index}")
 
         if step_index not in self.step_tool_history:
@@ -137,7 +155,7 @@ class Plan:
 
     def add_tool_call_pending(self, step_index: int, tool: str, args: dict, call_time: str) -> None:
         """Record a pending tool call for a step."""
-        if step_index < 0 or step_index >= len(self.steps):
+        if step_index not in self.steps:
             raise ValueError(f"Invalid step_index: {step_index}")
 
         if step_index not in self.step_tool_history:
@@ -175,7 +193,7 @@ class Plan:
             True if all tool calls are successful (or no tool calls)
             False if there are pending tool calls (hallucination detected)
         """
-        if step_index < 0 or step_index >= len(self.steps):
+        if step_index not in self.steps:
             raise ValueError(f"Invalid step_index: {step_index}")
 
         if step_index not in self.step_tool_history:
@@ -189,7 +207,7 @@ class Plan:
 
     def add_file(self, step_index: int, file_path: str) -> None:
         """Record a generated file for a step."""
-        if step_index < 0 or step_index >= len(self.steps):
+        if step_index not in self.steps:
             raise ValueError(f"Invalid step_index: {step_index}")
 
         if step_index not in self.step_files:
@@ -202,45 +220,19 @@ class Plan:
         """Get indices of steps ready to execute (dependencies satisfied)."""
         ready = []
 
-        for idx, step in enumerate(self.steps):
+        for idx in self.steps:
             # Skip if already started or completed
-            if self.step_statuses[step] != "not_started":
+            if self.step_statuses[idx] != "not_started":
                 continue
 
             # Check if all dependencies are completed
             deps = self.dependencies.get(idx, [])
-            all_deps_done = all(self.step_statuses[self.steps[dep]] == "completed" for dep in deps)
+            all_deps_done = all(self.step_statuses.get(dep) == "completed" for dep in deps)
 
             if all_deps_done:
                 ready.append(idx)
 
         return ready
-
-    def get_downstream_steps(self, step_idx: int) -> list[int]:
-        """
-        Get all downstream steps (direct + indirect dependents).
-
-        Args:
-            step_idx: The step index to find dependents for.
-
-        Returns:
-            Sorted list of step indices that depend on this step.
-        """
-        downstream = set()
-        to_check = [step_idx]
-        max_valid_idx = len(self.steps) - 1
-
-        while to_check:
-            current = to_check.pop()
-            for idx, deps in self.dependencies.items():
-                # Skip stale indices that are out of range
-                if idx > max_valid_idx:
-                    continue
-                if current in deps and idx not in downstream:
-                    downstream.add(idx)
-                    to_check.append(idx)
-
-        return sorted(downstream)
 
     def get_progress(self) -> dict[str, int]:
         """Get progress statistics."""
@@ -260,8 +252,9 @@ class Plan:
             Compact DAG representation showing steps and dependencies.
         """
         lines = []
-        for idx, step in enumerate(self.steps):
-            status = self.step_statuses.get(step, "?")
+        for idx in sorted(self.steps.keys()):
+            step = self.steps[idx]
+            status = self.step_statuses.get(idx, "?")
             status_char = {"completed": "✓", "blocked": "!", "in_progress": "→"}.get(status, " ")
             deps = self.dependencies.get(idx, [])
             dep_str = f" ← {deps}" if deps else ""
@@ -287,14 +280,16 @@ class Plan:
             "blocked": "[!]",
         }
 
-        for idx, step in enumerate(self.steps):
-            symbol = status_symbols.get(self.step_statuses[step], "[ ]")
+        for idx in sorted(self.steps.keys()):
+            step = self.steps[idx]
+            symbol = status_symbols.get(self.step_statuses.get(idx, "not_started"), "[ ]")
             deps = self.dependencies.get(idx, [])
             dep_str = f" (depends on: {deps})" if deps else ""
             lines.append(f"  {idx}: {symbol} {step}{dep_str}")
 
-            if self.step_notes[step]:
-                lines.append(f"      Notes: {self.step_notes[step]}")
+            notes = self.step_notes.get(idx, "")
+            if notes:
+                lines.append(f"      Notes: {notes}")
 
             # Show tool history summary
             if idx in self.step_tool_history:
@@ -312,145 +307,103 @@ class Plan:
 
         return "\n".join(lines)
 
-    def remove_steps(self, step_indices: list[int]) -> None:
+    def _get_downstream(self, step_id: int) -> set[int]:
+        """找出所有直接或間接依賴 step_id 的步驟。
+
+        透過 BFS 遍歷 dependency graph 的子節點方向。
+        dependencies[child] = [parents]，所以 child of X = 任何 Y where X in dependencies[Y]。
         """
-        Remove steps and update DAG structure.
+        downstream: set[int] = set()
+        queue = [step_id]
+        while queue:
+            current = queue.pop(0)
+            for sid, deps in self.dependencies.items():
+                if current in deps and sid not in downstream:
+                    downstream.add(sid)
+                    queue.append(sid)
+        return downstream
 
-        Args:
-            step_indices: List of step indices to remove (must be sorted desc internally).
-        """
-        # Filter out invalid indices (out of range)
-        valid_indices = [idx for idx in step_indices if 0 <= idx < len(self.steps)]
-        if not valid_indices:
-            return
+    def _get_terminal_nodes(self) -> set[int]:
+        """找出沒有子節點的終端步驟（不被任何其他步驟依賴的）。"""
+        parents_set: set[int] = set()
+        for deps in self.dependencies.values():
+            parents_set.update(deps)
+        return set(self.steps.keys()) - parents_set
 
-        # Sort indices in descending order to remove from end first
-        indices_to_remove = sorted(valid_indices, reverse=True)
-
-        # Build mapping from old index to new index
-        removed_set = set(valid_indices)
-        index_map: dict[int, int] = {}
-        new_idx = 0
-        for old_idx in range(len(self.steps)):
-            if old_idx not in removed_set:
-                index_map[old_idx] = new_idx
-                new_idx += 1
-
-        # Remove steps (from end to preserve indices)
-        for idx in indices_to_remove:
-            step = self.steps[idx]
-            del self.steps[idx]
-            if step in self.step_statuses:
-                del self.step_statuses[step]
-            if step in self.step_notes:
-                del self.step_notes[step]
-            if idx in self.step_tool_history:
-                del self.step_tool_history[idx]
-            if idx in self.step_files:
-                del self.step_files[idx]
-
-        # Update dependencies with new indices
-        # When a dep points to a removed step, inherit that step's dependencies
-        new_dependencies: dict[int, list[int]] = {}
-        for old_idx, deps in self.dependencies.items():
-            # Skip removed indices and stale out-of-range indices
-            if old_idx in removed_set or old_idx not in index_map:
-                continue
-
-            resolved_deps: set[int] = set()
-            for dep in deps:
-                if dep in removed_set:
-                    # Inherit the removed step's dependencies
-                    inherited = self.dependencies.get(dep, [])
-                    for inherited_dep in inherited:
-                        if inherited_dep not in removed_set and inherited_dep in index_map:
-                            resolved_deps.add(inherited_dep)
-                elif dep in index_map:
-                    resolved_deps.add(dep)
-
-            new_idx = index_map[old_idx]
-            new_deps = sorted([index_map[d] for d in resolved_deps])
-            if new_deps:
-                new_dependencies[new_idx] = new_deps
-
-        self.dependencies = new_dependencies
-
-        # Update tool history indices
-        new_tool_history: dict[int, list[dict]] = {}
-        for old_idx, history in list(self.step_tool_history.items()):
-            if old_idx in index_map:
-                new_tool_history[index_map[old_idx]] = history
-        self.step_tool_history = new_tool_history
-
-        # Update file indices
-        new_files: dict[int, list[str]] = {}
-        for old_idx, files in list(self.step_files.items()):
-            if old_idx in index_map:
-                new_files[index_map[old_idx]] = files
-        self.step_files = new_files
-
-        # Update step intents indices
-        new_intents: dict[int, str] = {}
-        for old_idx, intent in list(self.step_intents.items()):
-            if old_idx in index_map:
-                new_intents[index_map[old_idx]] = intent
-        self.step_intents = new_intents
-
-    def add_steps(
+    def apply_replan(
         self,
-        new_steps: list[str],
-        new_dependencies: dict[int, list[int]],
-        insert_after: int,
-        new_intents: dict[int, str] | None = None,
+        failed_step_id: int,
+        new_description: str,
+        new_intent: str,
+        continuation_steps: dict[int, str] | None = None,
+        continuation_dependencies: dict[int, list[int]] | None = None,
+        continuation_intents: dict[int, str] | None = None,
     ) -> None:
-        """Add new steps to the plan after a specified position.
+        """Apply a replan after a step failure.
 
-        Args:
-            new_steps: List of new step descriptions.
-            new_dependencies: Dependencies between new steps (relative indices).
-            insert_after: Index after which to insert new steps.
-            new_intents: Optional intents for new steps (relative indices).
-                Missing intents default to "default".
+        1. 刪除 failed step 的所有 downstream steps
+        2. 重設 failed step（新 description、清 tool history）
+        3. 如果有 continuation steps，map local IDs → actual IDs，
+           並自動連接 continuation root nodes 到 DAG 的 terminal nodes
         """
-        base_idx = insert_after + 1
-        shift = len(new_steps)
+        # 1. 刪除 downstream steps
+        downstream = self._get_downstream(failed_step_id)
+        for sid in downstream:
+            self.steps.pop(sid, None)
+            self.step_statuses.pop(sid, None)
+            self.step_notes.pop(sid, None)
+            self.step_tool_history.pop(sid, None)
+            self.step_files.pop(sid, None)
+            self.step_intents.pop(sid, None)
+            self.dependencies.pop(sid, None)
 
-        # Shift existing intents for steps at or after insertion point
-        shifted_intents: dict[int, str] = {}
-        for idx, intent in self.step_intents.items():
-            if idx >= base_idx:
-                shifted_intents[idx + shift] = intent
-            else:
-                shifted_intents[idx] = intent
-        self.step_intents = shifted_intents
+        # 2. 重設 failed step
+        self.steps[failed_step_id] = new_description
+        self.step_statuses[failed_step_id] = "not_started"
+        self.step_notes[failed_step_id] = ""
+        self.step_tool_history.pop(failed_step_id, None)
+        self.step_files.pop(failed_step_id, None)
+        self.step_intents[failed_step_id] = new_intent or "default"
+        self.replanned_steps.add(failed_step_id)
 
-        # Add new steps
-        for i, step in enumerate(new_steps):
-            self.steps.insert(base_idx + i, step)
-            self.step_statuses[step] = "not_started"
-            self.step_notes[step] = ""
+        # 3. 加入 continuation steps
+        if continuation_steps:
+            continuation_dependencies = continuation_dependencies or {}
+            continuation_intents = continuation_intents or {}
 
-        # Add intents for new steps
-        for i in range(len(new_steps)):
-            abs_idx = base_idx + i
-            if new_intents and i in new_intents:
-                self.step_intents[abs_idx] = new_intents[i]
-            else:
-                self.step_intents[abs_idx] = "default"
+            # Map local IDs → actual IDs
+            base_id = max(self.steps.keys()) + 1
+            sorted_local_ids = sorted(continuation_steps.keys())
+            id_map = {lid: base_id + i for i, lid in enumerate(sorted_local_ids)}
 
-        # Convert relative dependencies to absolute indices
-        normalized_deps = self._normalize_dependencies(new_dependencies)
-        for rel_idx, rel_deps in normalized_deps.items():
-            abs_idx = base_idx + rel_idx
-            # Map relative deps to absolute, and add connection to insert_after
-            abs_deps = []
-            if rel_idx == 0:
-                # First new step depends on insert_after
-                abs_deps.append(insert_after)
-            for rel_dep in rel_deps:
-                abs_deps.append(base_idx + rel_dep)
-            if abs_deps:
-                self.dependencies[abs_idx] = abs_deps
+            # 找 terminal nodes
+            terminal_nodes = sorted(self._get_terminal_nodes())
+
+            # 找 continuation root nodes（沒有 internal deps 的）
+            norm_cont_deps = self._normalize_dependencies(continuation_dependencies)
+            root_local_ids = set()
+            for lid in sorted_local_ids:
+                if not norm_cont_deps.get(lid, []):
+                    root_local_ids.add(lid)
+
+            # 加入每個 continuation step
+            for lid in sorted_local_ids:
+                actual_id = id_map[lid]
+                self.steps[actual_id] = continuation_steps[lid]
+                self.step_statuses[actual_id] = "not_started"
+                self.step_notes[actual_id] = ""
+                self.step_intents[actual_id] = continuation_intents.get(lid, "default")
+
+                if lid in root_local_ids:
+                    self.dependencies[actual_id] = terminal_nodes
+                else:
+                    self.dependencies[actual_id] = [id_map[d] for d in norm_cont_deps[lid]]
+
+        # Update _next_id
+        if self.steps:
+            self._next_id = max(self.steps.keys()) + 1
+        else:
+            self._next_id = 0
 
     def format_tool_history(self, step_indices: list[int]) -> str:
         """
@@ -465,7 +418,7 @@ class Plan:
         lines = []
 
         for idx in step_indices:
-            if idx >= len(self.steps):
+            if idx not in self.steps:
                 continue
 
             step_desc = self.steps[idx]

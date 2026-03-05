@@ -12,7 +12,7 @@ class TestPlanToolkit:
         result = self.toolkit.create_plan(title="Test Plan", steps=["Step 1", "Step 2"])
 
         assert self.plan.title == "Test Plan"
-        assert self.plan.steps == ["Step 1", "Step 2"]
+        assert self.plan.steps == {0: "Step 1", 1: "Step 2"}
         assert "Test Plan" in result
 
     def test_create_plan_with_dependencies(self):
@@ -34,7 +34,7 @@ class TestPlanToolkit:
         self.toolkit.update_plan(title="Updated")
 
         assert self.plan.title == "Updated"
-        assert self.plan.steps == ["A", "B"]
+        assert self.plan.steps == {0: "A", 1: "B"}
 
     def test_update_plan_steps(self):
         """Should update steps"""
@@ -42,7 +42,7 @@ class TestPlanToolkit:
 
         self.toolkit.update_plan(steps=["A", "B", "C"])
 
-        assert self.plan.steps == ["A", "B", "C"]
+        assert self.plan.steps == {0: "A", 1: "B", 2: "C"}
 
     def test_get_tool_declarations(self):
         """Should return list of FunctionDeclarations"""

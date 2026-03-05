@@ -102,7 +102,10 @@ class PlanToolkit:
             desc = step.get("description") or step.get("step") or step.get("text") or str(step)
             normalized.append(desc)
             if "intent" in step and i not in extracted_intents:
-                extracted_intents[i] = step["intent"]
+                raw_intent = step["intent"]
+                extracted_intents[i] = (
+                    raw_intent["intent"] if isinstance(raw_intent, dict) else raw_intent
+                )
         return normalized, extracted_intents or None
 
     def create_plan(
@@ -140,6 +143,8 @@ class PlanToolkit:
         intents: dict[int, str] | None = None,
     ) -> str:
         """Update existing plan."""
+        if steps is not None:
+            steps, intents = self._normalize_steps(steps, intents)
         normalized_intents = self._normalize_intents(intents) if intents else None
         self.plan.update(
             title=title, steps=steps, dependencies=dependencies, step_intents=normalized_intents

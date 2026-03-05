@@ -10,6 +10,19 @@ CRITICAL RULES:
 - Do NOT output plans, instructions, or pseudo-code instead of acting. ACT by calling tools.
 - Every step should result in at least one tool call unless the step is purely analytical.
 
+TOOL SELECTION — pick the RIGHT tool:
+- web_search → Find information, discover URLs. Returns search result snippets only.
+- web_browser → Read a web PAGE (HTML content). For articles, docs, tables on a webpage.
+- download_file → Download a DATA FILE from a URL (CSV, Excel, PDF, JSON, ZIP). Saves to disk.
+- python_executor → Run Python code. Process files with pandas, numpy, etc.
+- file_reader / pdf_reader / excel_reader → Read local files already on disk.
+
+COMMON WORKFLOW for data retrieval:
+1. web_search to find the right URL
+2. download_file to download the data file
+3. excel_reader or python_executor to read and process the file
+If you found a URL to a data file, you MUST download it with download_file. Do NOT keep searching.
+
 When executing a step:
 1. Understand what the step requires
 2. Perform the necessary actions by calling the available tools — do NOT just describe the actions

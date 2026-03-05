@@ -5,40 +5,39 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from app.agents.replanner.replanner_agent import ReplanContext
+    from app.agents.replanner.replanner_agent import FailureRecord
 
-REPLANNER_SYSTEM_PROMPT = """You are a plan redesign specialist. When a step fails due to tool call issues, you analyze the situation and redesign the affected steps.
+REPLANNER_SYSTEM_PROMPT = """You are a plan redesign specialist. When a step fails, you analyze what went wrong and design a new approach.
 
 ## Your Task
-Analyze the failed step and all downstream dependencies, then provide a redesigned plan for those steps.
+You will receive:
+1. The original task description
+2. Completed steps (context only — you don't need to reproduce them)
+3. The failed step: its ID, description, failure reason, and what was attempted
+4. Available tools and intents
 
-## Critical Constraints
-
-**DO NOT MODIFY COMPLETED STEPS:**
-- Completed steps and their outputs are LOCKED and cannot be changed
-- The DAG structure of completed steps MUST remain intact
-- Your new steps will be inserted AFTER the last completed step
-- The system will automatically connect your first new step to the last completed step
-
-**ONLY REDESIGN THE FAILED SUBGRAPH:**
-- You are only redesigning the failed step and its downstream dependencies
-- The new steps replace the failed subgraph entirely
-- Dependencies you specify are RELATIVE indices within your new steps only
-
-## Input You Will Receive
-1. **Completed Steps**: Full tool call history of successfully completed steps (READ-ONLY)
-2. **Failed Steps**: The step that failed and its downstream dependencies that need redesign
-3. **Available Tools**: List of tools you can use in the new plan
+Your job:
+- Provide a NEW description for the failed step (a different approach, but still ONE single action)
+- Provide continuation steps for any remaining work needed to complete the original task
 
 ## Output Format
-You MUST respond with a JSON block containing your redesign decision:
 
 ```json
 {
     "action": "redesign",
-    "new_steps": ["Step description 1", "Step description 2", ...],
-    "new_dependencies": {"1": [0], "2": [1], ...},
-    "new_intents": {"0": "generate", "1": "review", ...}
+    "failed_step_description": "New approach for the failed step",
+    "failed_step_intent": "<intent>",
+    "continuation_steps": {
+        "0": "First continuation step",
+        "1": "Second continuation step"
+    },
+    "continuation_dependencies": {
+        "1": [0]
+    },
+    "continuation_intents": {
+        "0": "<intent>",
+        "1": "<intent>"
+    }
 }
 ```
 
@@ -46,124 +45,68 @@ Or if the task cannot be completed:
 
 ```json
 {
-    "action": "give_up",
-    "new_steps": [],
-    "new_dependencies": {},
-    "new_intents": {}
+    "action": "give_up"
 }
 ```
+
+## Key Rules
+- `failed_step_description`: A NEW description for the failed step. Must use a different approach than the original. Must be ONE single action — do NOT pack multiple actions into it.
+- `continuation_steps`: Use local IDs starting from 0. The system will automatically assign real IDs and connect them to the rest of the DAG. Think about what work remains to complete the original task — any downstream steps that were in the plan will be removed, so you must re-plan them here.
+- `continuation_dependencies`: Dependencies between continuation steps using local IDs. Steps with no dependencies listed are "root" steps and will automatically depend on all current terminal steps.
+- Only omit `continuation_steps` if the failed step is the LAST step and no further work is needed.
 
 ## Guidelines
-1. **Analyze the failure**: Understand why the step failed from the tool history
-2. **Build on completed work**: Use the completed steps' outputs as your foundation
-3. **Break down complex steps**: If a step failed, consider splitting it into smaller steps
-4. **Use available tools**: Only reference tools from the available tools list
-5. **Dependencies format**: Use RELATIVE indices (0-based) for new_dependencies
-   - Key is the new step index, value is list of dependency indices within new steps
-   - First step (index 0) needs no entry - it automatically depends on the last completed step
-   - Example: `{"1": [0], "2": [1]}` means step 1 depends on step 0, step 2 depends on step 1
-6. **Give up wisely**: Only give up if the task is truly impossible with available tools
-7. **Intents format**: Assign an intent to each new step using RELATIVE indices (0-based)
-   - You MUST ONLY use intents listed in "Available Intents" section - do NOT invent intent names
-   - Each key in `new_intents` maps to the corresponding step index in `new_steps`
-
-## Example
-
-Original plan:
-- Step 0: Analyze requirements [COMPLETED]
-- Step 1: Create project structure [COMPLETED]
-- Step 2: Build API endpoints [FAILED - pending write_file]
-- Step 3: Write tests (depends on 2)
-- Step 4: Run tests (depends on 3)
-
-You should redesign steps 2, 3, 4 while keeping steps 0, 1 intact:
-
-```json
-{
-    "action": "redesign",
-    "new_steps": [
-        "Create API route structure",
-        "Implement GET endpoints",
-        "Implement POST endpoints",
-        "Add error handling",
-        "Write and run tests"
-    ],
-    "new_dependencies": {"1": [0], "2": [0], "3": [1, 2], "4": [3]},
-    "new_intents": {"0": "<intent-from-available-list>", "1": "<intent-from-available-list>", "2": "<intent-from-available-list>", "3": "<intent-from-available-list>", "4": "<intent-from-available-list>"}
-}
-```
-
-The system will:
-1. Remove failed steps 2, 3, 4
-2. Insert your 5 new steps after step 1
-3. Automatically make your step 0 depend on the last completed step (step 1)
+1. **Analyze the failure**: Understand WHY the step failed — use the error details and tool history
+2. **Try a different approach**: Don't just rephrase — change the strategy, tools, or method
+   - IMPORTANT: The executor does NOT have access to the conversation history. If the original task includes past conversations, embed all relevant information directly into step descriptions. Do NOT create steps that ask the executor to "retrieve" or "scan" conversation history.
+3. **Learn from errors**: Avoid repeating the same mistake (wrong tool, wrong query, etc.)
+4. **Build on partial results**: Carefully read the executor output and tool call results. If the executor found USEFUL data (coordinates, place names, URLs, partial records), design new steps that build on that data instead of starting over
+5. **ONE action per step**: Each step should do ONE thing (e.g. "search for X" or "read page Y"). Do NOT combine multiple actions like "search, then browse, then parse" in a single step
+6. **Give up wisely**: Only give up if the task is truly impossible
+7. **Intents**: You MUST ONLY use intents listed in the "Available Intents" section
 """
 
 
 def build_replan_prompt(
+    original_query: str,
+    completed_steps: dict[int, dict[str, str]],
     completed_tool_history: str,
-    steps_to_replan: list[tuple[int, str]],
+    failed_step_info: str,
+    failed_step_id: int,
     available_tools: list[str],
     available_intents: dict[str, str] | None = None,
-    context: ReplanContext | None = None,
+    attempt: int = 1,
+    max_attempts: int = 3,
+    failure_history: list[FailureRecord] | None = None,
 ) -> str:
-    """
-    Build the prompt for replanning.
+    """Build the prompt for replanning.
 
     Args:
+        original_query: The user's original task
+        completed_steps: {id: {"description": ..., "deps": ...}} for completed steps
         completed_tool_history: Formatted tool history of completed steps
-        steps_to_replan: List of (index, description) for steps to redesign
+        failed_step_info: Formatted info about the failed step
+        failed_step_id: The ID of the failed step
         available_tools: List of available tool names
         available_intents: Dict of intent_name -> description for routing
-        context: Optional ReplanContext with failure details for richer prompts
+        attempt: Current global replan attempt number
+        max_attempts: Maximum global replan attempts
 
     Returns:
         Complete prompt for the replanner
     """
-    # Build original task section if context provided
-    task_section = ""
-    if context:
-        task_section = f"## Original Task\n\n{context.original_query}\n\n---\n\n"
-
-    # Build steps section - enriched with failure details when context is available
-    if context:
-        failed_lines = []
-        for idx, desc in steps_to_replan:
-            failed_lines.append(f"### Step {idx}: {desc}")
-            failed_lines.append(f"Attempt: {context.attempt_number}/{context.max_attempts}")
-
-            notes = context.failed_step_notes.get(idx, "")
-            if notes:
-                failed_lines.append(f"\nFailure reason:\n{notes}")
-
-            output = context.failed_step_outputs.get(idx, "")
-            if output:
-                if len(output) > 500:
-                    output = "...[truncated]\n" + output[-500:]
-                failed_lines.append(f"\nExecutor output (last 500 chars):\n{output}")
-
-            tool_history = context.failed_tool_history.get(idx, [])
-            if tool_history:
-                failed_lines.append("\nTool calls:")
-                for call in tool_history:
-                    tool = call.get("tool", "?")
-                    args = call.get("args", {})
-                    result = call.get("result", "")
-                    args_str = (
-                        ", ".join(f'{k}="{v}"' for k, v in args.items())
-                        if isinstance(args, dict)
-                        else str(args)
-                    )
-                    failed_lines.append(f"- {tool}({args_str}) -> {result}")
-
-            failed_lines.append("")
-        steps_section = "\n".join(failed_lines)
+    # Completed steps section
+    if completed_steps:
+        completed_lines = []
+        for sid in sorted(completed_steps.keys()):
+            info = completed_steps[sid]
+            completed_lines.append(f"  Step {sid}: {info['description']} (deps: {info['deps']})")
+        completed_section = "\n".join(completed_lines)
     else:
-        steps_section = "\n".join(f"- Step {idx}: {desc}" for idx, desc in steps_to_replan)
+        completed_section = "(No completed steps)"
 
     tools_section = "\n".join(f"- {tool}" for tool in available_tools)
 
-    # Build available intents section
     intents_section = ""
     if available_intents:
         intents_lines = "\n".join(f"- `{name}`: {desc}" for name, desc in available_intents.items())
@@ -172,27 +115,62 @@ def build_replan_prompt(
 
 ## Available Intents
 
-You MUST assign one of these intents to each new step in `new_intents`. Do NOT invent or use unlisted intent names:
+You MUST assign one of these intents to each step. Do NOT invent or use unlisted intent names:
 {intents_lines}
 """
 
-    # Build attempt escalation note
+    # Build failure history section
+    failure_history_section = ""
+    if failure_history:
+        history_lines = ["## Past Failed Attempts\n"]
+        for i, record in enumerate(failure_history, 1):
+            history_lines.append(f"### Attempt {i}")
+            history_lines.append(f"- Task: {record.step_description}")
+            history_lines.append(f"- Failure reason: {record.failure_notes}")
+            if record.tool_history:
+                history_lines.append("- Tool calls:")
+                for call in record.tool_history:
+                    tool = call.get("tool", "?")
+                    args = call.get("args", {})
+                    result = call.get("result", "")
+                    args_str = (
+                        ", ".join(f'{k}="{v}"' for k, v in args.items())
+                        if isinstance(args, dict)
+                        else str(args)
+                    )
+                    history_lines.append(f"  - {tool}({args_str}) -> {result}")
+            history_lines.append("")
+        history_lines.append(
+            "Based on the above failures, avoid repeating the same approaches and try a different strategy.\n"
+        )
+        failure_history_section = "\n".join(history_lines)
+
     attempt_note = ""
-    if context and context.attempt_number > 1:
+    if attempt > 1:
         attempt_note = (
-            f"\n**This is attempt {context.attempt_number} of {context.max_attempts}. "
-            "If previous approaches failed, try a significantly different strategy.**\n"
+            f"\n**This is global replan attempt {attempt} of {max_attempts}. "
+            "Previous approaches failed — you MUST try a significantly different strategy.**\n"
         )
 
-    return f"""{task_section}## Completed Steps (READ-ONLY - DO NOT MODIFY)
+    return f"""## Original Task
 
-{completed_tool_history if completed_tool_history else "(No completed steps)"}
+{original_query}
 
 ---
 
-## Steps to Redesign (replace these entirely)
+## Completed Steps (Context — do NOT reproduce these in your output)
 
-{steps_section}
+{completed_section}
+
+### Completed Steps Tool History
+
+{completed_tool_history if completed_tool_history else "(No tool calls recorded)"}
+
+---
+
+## Failed Step
+
+{failed_step_info}
 
 ---
 
@@ -201,12 +179,12 @@ You MUST assign one of these intents to each new step in `new_intents`. Do NOT i
 {tools_section}
 {intents_section}
 ---
-{attempt_note}
+{failure_history_section}{attempt_note}
 **Remember:**
-- Completed steps are LOCKED - do not reference or modify them
-- Your new steps will be inserted after the last completed step
-- Use RELATIVE indices (0-based) for dependencies between your new steps only
-- The system handles connecting your first step to the completed work
+- The failed step description must do ONE thing only (different approach from the original)
+- All downstream steps will be removed — add continuation steps for any remaining work needed to complete the original task
+- The system will automatically connect continuation steps to the DAG
+- Each step should do ONE thing
 
-Please analyze the situation and provide your redesign decision in JSON format.
+Please analyze the failure and provide your redesigned plan in JSON format.
 """

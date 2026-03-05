@@ -50,6 +50,7 @@ class TaskRequest(BaseModel):
     """Request body for creating a new task."""
 
     query: str
+    history: list[dict] | None = None
 
 
 class TaskResponse(BaseModel):
@@ -66,7 +67,7 @@ async def create_task(request: TaskRequest, background_tasks: BackgroundTasks):
     event_store[task_id] = []
 
     # Start execution in background
-    background_tasks.add_task(run_cortex_task, task_id, request.query)
+    background_tasks.add_task(run_cortex_task, task_id, request.query, request.history)
 
     return TaskResponse(task_id=task_id, status="accepted")
 
@@ -112,7 +113,7 @@ async def stream_events(task_id: str, request: Request):
     return EventSourceResponse(event_generator())
 
 
-async def run_cortex_task(task_id: str, query: str) -> None:
+async def run_cortex_task(task_id: str, query: str, history: list[dict] | None = None) -> None:
     """Run a Cortex task and store events for SSE streaming."""
     logger.info("Starting task %s: %s", task_id, query)
 
@@ -131,7 +132,7 @@ async def run_cortex_task(task_id: str, query: str) -> None:
                 event_store[task_id].append({"event": event_type, "data": data})
 
         # Execute
-        await cortex.execute(query, on_event=on_event)
+        await cortex.execute(query, history=history, on_event=on_event)
 
     except Exception as e:
         logger.error("Task %s failed: %s", task_id, e)
