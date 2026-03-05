@@ -44,7 +44,6 @@ class Cortex:
         self.config = config
         self._model = None  # Lazy-created LLM
         self._executor_entries = {e.intent: e for e in config.executors}
-        self.history: list[dict] = []
 
         # Create sandbox manager if any sandbox feature is enabled
         sandbox_needed = (
@@ -111,9 +110,6 @@ class Cortex:
                 else:
                     on_event(event_type, data or {})
 
-        # Record user query in history
-        self.history.append({"role": "user", "content": query})
-
         # Create new plan for this task
         plan_id = f"plan_{int(time.time())}"
         plan = Plan()
@@ -144,7 +140,25 @@ class Cortex:
                 extra_tools=planner_sandbox_tools,
                 available_intents=self._get_available_intents(),
             )
-            await planner.create_plan(query)
+            # Build planner query with history context
+            if history:
+                recent = history[-20:]  # last 3 rounds
+                cleaned = []
+                for m in recent:
+                    content = m["content"]
+                    if m["role"] == "assistant" and "---" in content:
+                        content = content.split("---")[0].strip()
+                    cleaned.append(f"{m['role'].capitalize()}: {content}")
+                history_text = "\n".join(cleaned)
+                planner_query = (
+                    f"## Past conversation (for reference)\n{history_text}\n\n"
+                    f"## Current task\n{query}"
+                )
+            else:
+                planner_query = query
+
+            logger.info("\033[95m*** HISTORY (cleaned) ***:\n%s\033[0m", planner_query)
+            await planner.create_plan(planner_query)
             logger.info("Plan created with %d steps", len(plan.steps))
 
             # Emit initial plan structure
@@ -404,7 +418,7 @@ class Cortex:
                                 )
 
                                 replan_result = await replanner.replan(
-                                    original_query=query,
+                                    original_query=planner_query,
                                     failed_step_id=step_idx,
                                     failed_step_desc=step_desc,
                                     failed_output=failed_outputs.get(step_idx, ""),
@@ -473,9 +487,6 @@ class Cortex:
                 progress["blocked"],
             )
             final_result = await self._aggregate_results(query, plan, step_outputs)
-
-            # Record result in history
-            self.history.append({"role": "assistant", "content": final_result})
 
             logger.info("=== FINAL PLAN STATE ===")
             for i, step in plan.steps.items():

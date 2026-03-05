@@ -58,6 +58,7 @@ Or if the task cannot be completed:
 ## Guidelines
 1. **Analyze the failure**: Understand WHY the step failed — use the error details and tool history
 2. **Try a different approach**: Don't just rephrase — change the strategy, tools, or method
+   - IMPORTANT: The executor does NOT have access to the conversation history. If the original task includes past conversations, embed all relevant information directly into step descriptions. Do NOT create steps that ask the executor to "retrieve" or "scan" conversation history.
 3. **Learn from errors**: Avoid repeating the same mistake (wrong tool, wrong query, etc.)
 4. **Build on partial results**: Carefully read the executor output and tool call results. If the executor found USEFUL data (coordinates, place names, URLs, partial records), design new steps that build on that data instead of starting over
 5. **ONE action per step**: Each step should do ONE thing (e.g. "search for X" or "read page Y"). Do NOT combine multiple actions like "search, then browse, then parse" in a single step

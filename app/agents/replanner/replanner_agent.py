@@ -200,7 +200,12 @@ class ReplannerAgent(BaseAgent):
 
             raw_cont_intents = data.get("continuation_intents", {})
             continuation_intents = (
-                {int(k): v for k, v in raw_cont_intents.items()} if raw_cont_intents else {}
+                {
+                    int(k): (v["intent"] if isinstance(v, dict) else v)
+                    for k, v in raw_cont_intents.items()
+                }
+                if raw_cont_intents
+                else {}
             )
 
             return ReplanResult(

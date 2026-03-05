@@ -27,26 +27,11 @@ class TestCortex:
     def setup_method(self):
         TaskManager._plans.clear()
 
-    def test_init_creates_empty_history(self):
-        """Should initialize with empty history"""
-        cortex = Cortex(make_config())
-
-        assert cortex.history == []
-
     def test_init_stores_model(self):
         """Should store the model config"""
         cortex = Cortex(make_config())
 
         assert cortex.config.model.name == "test-model"
-
-    def test_history_persists_across_tasks(self):
-        """History should persist after task execution"""
-        cortex = Cortex(make_config())
-
-        cortex.history.append({"role": "user", "content": "Task 1"})
-        cortex.history.append({"role": "assistant", "content": "Done"})
-
-        assert len(cortex.history) == 2
 
     def test_plan_cleanup(self):
         """Should clean up plan after task"""
