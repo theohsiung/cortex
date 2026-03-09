@@ -31,6 +31,9 @@ tools.py
 note.txt
 scripts/eval
 
+# ADK session databases
+.adk/
+
 # Runtime output
 tmp/
 logs/
