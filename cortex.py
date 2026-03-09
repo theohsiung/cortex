@@ -168,6 +168,7 @@ class Cortex:
                     "plan": plan.format_dag(),
                     "steps": plan.steps,
                     "dependencies": plan.dependencies,
+                    "step_intents": plan.step_intents,
                 },
             )
 
@@ -210,7 +211,14 @@ class Cortex:
                     step_desc = plan.steps.get(step_idx, f"Step {step_idx}")
                     logger.info("▶ Executing step %d: %s", step_idx, step_desc)
                     plan.mark_step(step_idx, step_status="in_progress")
-                    await emit("step_status", {"step_idx": step_idx, "status": "in_progress"})
+                    await emit(
+                        "step_status",
+                        {
+                            "step_idx": step_idx,
+                            "status": "in_progress",
+                            "intent": plan.get_step_intent(step_idx),
+                        },
+                    )
 
                     last_error: Exception = Exception("step did not execute")
                     for attempt in range(max_retries + 1):
@@ -459,6 +467,7 @@ class Cortex:
                                             "plan": plan.format_dag(),
                                             "steps": plan.steps,
                                             "dependencies": plan.dependencies,
+                                            "step_intents": plan.step_intents,
                                         },
                                     )
                                 else:
