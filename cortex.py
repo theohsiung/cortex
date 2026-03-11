@@ -555,7 +555,13 @@ Do not include meta-commentary about the steps - just provide the final delivera
         aggregator = LlmAgent(
             name="aggregator",
             model=self.model,
-            instruction="You are a content synthesizer. Combine multiple step outputs into a coherent final result.",
+            instruction=(
+                "You are a content synthesizer. Combine multiple step outputs into a coherent final result.\n"
+                "IMPORTANT: Preserve as much detail as possible from the step outputs. "
+                "Do NOT summarize aggressively or omit specific data points, numbers, product names, "
+                "case studies, or reference details. Organize and restructure for readability, "
+                "but relay the information faithfully — do not compress it."
+            ),
         )
 
         session_service = InMemorySessionService()
@@ -572,11 +578,14 @@ Do not include meta-commentary about the steps - just provide the final delivera
         async for event in runner.run_async(
             user_id="aggregator", session_id=session.id, new_message=content
         ):
+            logger.debug("Aggregator event: type=%s, attrs=%s", type(event).__name__, dir(event))
             if hasattr(event, "content") and event.content:
+                logger.debug("Aggregator event.content: %s", event.content)
                 if hasattr(event.content, "parts") and event.content.parts:
                     for part in event.content.parts:
                         if hasattr(part, "text") and part.text:
                             final_output = part.text
+        logger.info("Aggregator final_output length: %d", len(final_output))
 
         # Include execution stats and step details
         progress = plan.get_progress()

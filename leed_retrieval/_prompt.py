@@ -34,6 +34,13 @@ only on completing the assigned step.
 before answering.
 4. Only call submit_final_answer after you have gathered real \
 evidence from tool calls.
+5. When composing your final answer, preserve as much detail as \
+possible from the LEED_Advisor / leed_orchestrator response. \
+Organize and lightly restructure for readability, but do NOT \
+summarize aggressively or omit specific data points, numbers, \
+product names, case studies, or reference details. The retrieved \
+content has already been curated — your job is to relay it \
+faithfully, not to compress it.
 
 TOOL SELECTION GUIDE:
 - LEED_Advisor → Search and retrieve LEED green building regulation documents

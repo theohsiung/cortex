@@ -92,7 +92,8 @@ def build_intent_prompt_section(intents: dict[str, str]) -> str:
         'For each step, you MUST assign an "intent" field to indicate which executor should handle it.',
         "Use the `intents` parameter in create_plan to specify intent for each step.",
         "",
-        "**IMPORTANT: When a step's task clearly matches a specialized agent's capability (based on its description), you MUST prefer that agent's intent over the general-purpose one.** "
+        "**IMPORTANT: When a step's task clearly matches a specialized agent's capability (based on its description), you MUST use that agent's intent — NEVER handle it in a general-purpose step.** "
+        "For example, any task involving drawing flowcharts, diagrams, or visual charts MUST be assigned to the specialized flowchart/diagram agent, NOT handled by a general agent. "
         "Each agent has its own tools and knows how to accomplish tasks within its domain — you do NOT need to know or specify the agent's tools or methods. "
         "Only fall back to a general-purpose intent when no specialized agent's description fits the task.",
         "",

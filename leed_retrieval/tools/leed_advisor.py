@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 
 import requests as requests
 from google.adk.tools import FunctionTool
+
+logger = logging.getLogger(__name__)
 
 
 def parse_streaming_chunks(raw: str) -> str:
@@ -56,7 +59,10 @@ def leed_query(query: str) -> str:
 
     data = resp.json()
     raw_text = data.get("result", {}).get("content", [{}])[0].get("text", "")
-    return parse_streaming_chunks(raw_text)
+    logger.info("MCP raw response text:\n%s", raw_text)
+    parsed = parse_streaming_chunks(raw_text)
+    logger.info("MCP parsed result:\n%s", parsed)
+    return parsed
 
 
 leed_advisor_tool = FunctionTool(leed_query)

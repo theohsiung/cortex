@@ -320,7 +320,7 @@ class BaseAgent:
         # Gemini doesn't support special chars in function names
         if "gemini" in model_str:
             return False
-        # gpt-oss models may need aliases for hallucinated tool names
-        if "gpt-oss" in model_str or "openai" in model_str:
+        # Only gpt-oss models need aliases for hallucinated tool names
+        if "gpt-oss" in model_str:
             return True
         return False
