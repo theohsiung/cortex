@@ -37,3 +37,4 @@ scripts/eval
 # Runtime output
 tmp/
 logs/
+excalidraw.log
