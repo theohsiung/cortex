@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 import uuid
 import warnings
 
@@ -79,7 +80,7 @@ async def create_task(request: TaskRequest) -> TaskResponse:
     return TaskResponse(task_id=task_id, status="accepted")
 
 
-@app.post("/api/tasks/{task_id}/cancel")
+@app.post("/api/tasks/{task_id}/cancel", response_model=None)
 async def cancel_task(task_id: str) -> JSONResponse | dict[str, str]:
     """Cancel a running Cortex task."""
     if task_id not in active_tasks:
@@ -109,6 +110,7 @@ async def stream_events(task_id: str, request: Request):
         events = event_store[task_id]
 
         try:
+            last_activity = time.time()
             while True:
                 if await request.is_disconnected():
                     break
@@ -117,6 +119,7 @@ async def stream_events(task_id: str, request: Request):
                 if current_idx < len(events):
                     event = events[current_idx]
                     current_idx += 1
+                    last_activity = time.time()
                     # Yield as data payload
                     yield {"data": json.dumps(event)}
 
@@ -125,6 +128,11 @@ async def stream_events(task_id: str, request: Request):
                         await asyncio.sleep(0.5)
                         break
                 else:
+                    # Send keep-alive ping every 15 seconds to prevent proxy timeout
+                    if time.time() - last_activity > 15:
+                        yield {"data": json.dumps({"event": "ping", "data": "keep-alive"})}
+                        last_activity = time.time()
+
                     # Wait for new events
                     await asyncio.sleep(0.1)
 
