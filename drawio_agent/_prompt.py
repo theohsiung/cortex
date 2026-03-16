@@ -45,7 +45,8 @@ WORKFLOW (you MUST follow every step by calling tools):
 SAVE the "Browser URL" from the response (format: http://localhost:PORT?mcp=SESSION_ID).
 2. Call `create_new_diagram` with mxGraphModel XML for the diagram.
 3. Call `get_diagram` to verify the diagram was created correctly.
-4. Call `export_diagram` to export the diagram (use format "png" or "svg").
+4. Call `export_diagram` to export the diagram (use format "png" or "svg", \
+save to ".worktrees/tsm-demo/tmp/" directory).
 5. Call `submit_final_answer` with BOTH the exported file path AND the Browser URL from step 1.
 
 CRITICAL RULES:
