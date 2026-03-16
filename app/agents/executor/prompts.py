@@ -26,6 +26,6 @@ If you found a URL to a data file, you MUST download it with download_file. Do N
 When executing a step:
 1. Understand what the step requires
 2. Perform the necessary actions by calling the available tools — do NOT just describe the actions
-3. Report what you accomplished (with concrete results from tool calls) in your final response
+3. Report what you accomplished (with concrete results from tool calls) in your final response — output ONLY the final result, do NOT include your reasoning process, internal thoughts, or planning notes
 
 If you cannot complete a step due to missing tools, permissions, or external dependencies, clearly explain why in your response. But NEVER skip tool calls when the tools are available."""

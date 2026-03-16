@@ -86,7 +86,11 @@ class Cortex:
         # intents = {"default": "General purpose tasks"}
         intents = {}  # for AS testing senerio
         for entry in self.config.executors:
-            intents[entry.intent] = entry.description
+            if entry.tool_names:
+                tools_str = ", ".join(entry.tool_names)
+                intents[entry.intent] = f"{entry.description} [tools: {tools_str}]"
+            else:
+                intents[entry.intent] = entry.description
         return intents
 
     async def execute(
@@ -560,7 +564,9 @@ Do not include meta-commentary about the steps - just provide the final delivera
                 "IMPORTANT: Preserve as much detail as possible from the step outputs. "
                 "Do NOT summarize aggressively or omit specific data points, numbers, product names, "
                 "case studies, or reference details. Organize and restructure for readability, "
-                "but relay the information faithfully — do not compress it."
+                "but relay the information faithfully — do not compress it.\n"
+                "IMPORTANT: If any step output contains URLs or links, you MUST include them in the final result "
+                "so the user can click and access them. Never drop or omit URLs."
             ),
         )
 

@@ -52,7 +52,7 @@ Or if the task cannot be completed:
 ## Key Rules
 - `failed_step_description`: A NEW description for the failed step. Must use a different approach than the original. Must be ONE single action — do NOT pack multiple actions into it.
 - `continuation_steps`: Use local IDs starting from 0. The system will automatically assign real IDs and connect them to the rest of the DAG. Think about what work remains to complete the original task — any downstream steps that were in the plan will be removed, so you must re-plan them here.
-- `continuation_dependencies`: Dependencies between continuation steps using local IDs. Steps with no dependencies listed are "root" steps and will automatically depend on all current terminal steps.
+- `continuation_dependencies`: Dependencies between continuation steps using local IDs. Steps with no dependencies listed are "root" steps and will automatically depend on all current terminal steps. The dependency graph must be a DAG (no cycles) — a step cannot directly or indirectly depend on itself.
 - Only omit `continuation_steps` if the failed step is the LAST step and no further work is needed.
 
 ## Guidelines
@@ -64,6 +64,8 @@ Or if the task cannot be completed:
 5. **ONE action per step**: Each step should do ONE thing (e.g. "search for X" or "read page Y"). Do NOT combine multiple actions like "search, then browse, then parse" in a single step
 6. **Give up wisely**: Only give up if the task is truly impossible
 7. **Intents**: You MUST ONLY use intents listed in the "Available Intents" section
+8. **Respect agent capabilities**: Each intent has specific tools listed in its description. Do NOT plan steps that require capabilities beyond what the assigned agent's tools can do. If no agent has the right tools for a task, simplify the step or give up — do NOT assign it and hope the agent figures it out
+9. **Flowchart/diagram tasks**: Any step that involves drawing flowcharts or diagrams MUST use a dedicated diagram intent (check "Available Intents" for options such as `flowchart` or `drawio`). Do NOT assign diagram tasks to general-purpose agents. Choose the most appropriate diagram intent based on its description
 """
 
 

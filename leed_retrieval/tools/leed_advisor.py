@@ -1,31 +1,18 @@
-"""LEED Advisor tool — calls LEED MCP server and parses streaming response."""
+"""LEED Advisor tool — calls LEED MCP server."""
 
 from __future__ import annotations
 
-import json
 import logging
 import os
+import time
 
 import requests as requests
 from google.adk.tools import FunctionTool
 
 logger = logging.getLogger(__name__)
 
-
-def parse_streaming_chunks(raw: str) -> str:
-    """Parse concatenated streaming JSON chunks into plain text."""
-    if not raw:
-        return ""
-    content = ""
-    for chunk_str in raw.replace("}{", "}\n{").split("\n"):
-        try:
-            obj = json.loads(chunk_str)
-            delta = obj.get("choices", [{}])[0].get("delta", {})
-            if "content" in delta:
-                content += delta["content"]
-        except (json.JSONDecodeError, IndexError, KeyError):
-            continue
-    return content
+MAX_RETRIES = 3
+RETRY_DELAY = 2
 
 
 def leed_query(query: str) -> str:
@@ -41,28 +28,32 @@ def leed_query(query: str) -> str:
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    resp = requests.post(
-        url,
-        headers=headers,
-        json={
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/call",
-            "params": {
-                "name": "leed_orchestrator",
-                "arguments": {"query": query},
-            },
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "leed_orchestrator",
+            "arguments": {"query": query},
         },
-        timeout=120,
-    )
-    resp.raise_for_status()
+    }
 
-    data = resp.json()
-    raw_text = data.get("result", {}).get("content", [{}])[0].get("text", "")
-    logger.info("MCP raw response text:\n%s", raw_text)
-    parsed = parse_streaming_chunks(raw_text)
-    logger.info("MCP parsed result:\n%s", parsed)
-    return parsed
+    last_err: requests.exceptions.ConnectionError | None = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=120)
+            resp.raise_for_status()
+            data = resp.json()
+            text = data.get("result", {}).get("content", [{}])[0].get("text", "")
+            logger.info("MCP result:\n%s", text[:500])
+            return str(text)
+        except requests.exceptions.ConnectionError as e:
+            last_err = e
+            logger.warning("leed_query attempt %d/%d failed: %s", attempt + 1, MAX_RETRIES, e)
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_DELAY)
+
+    raise last_err or RuntimeError("leed_query failed after all retries")
 
 
 leed_advisor_tool = FunctionTool(leed_query)

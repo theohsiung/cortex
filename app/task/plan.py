@@ -25,6 +25,29 @@ class Plan:
             return {}
         return {int(k): [int(v) for v in vals] for k, vals in deps.items()}
 
+    @staticmethod
+    def _sanitize_self_dependencies(deps: dict[int, list[int]]) -> dict[int, list[int]]:
+        """移除 self-loop：若 step 依賴自己，自動剔除並 log 警告。"""
+        import logging
+
+        logger = logging.getLogger(__name__)
+        sanitized = {}
+        for step_id, dep_ids in deps.items():
+            if step_id in dep_ids:
+                logger.warning("Self-dependency removed: step %d depended on itself", step_id)
+                sanitized[step_id] = [d for d in dep_ids if d != step_id]
+            else:
+                sanitized[step_id] = dep_ids
+        return sanitized
+
+    @property
+    def dependencies(self) -> dict[int, list[int]]:
+        return self._dependencies
+
+    @dependencies.setter
+    def dependencies(self, value: dict[int, list[int]]) -> None:
+        self._dependencies = self._sanitize_self_dependencies(value)
+
     def __init__(
         self,
         title: str = "",
