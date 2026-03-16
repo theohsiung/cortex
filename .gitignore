@@ -38,3 +38,4 @@ scripts/eval
 tmp/
 logs/
 excalidraw.log
+output/

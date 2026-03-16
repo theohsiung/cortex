@@ -27,12 +27,18 @@ from cortex import Cortex
 # Load environment variables
 load_dotenv()
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
-logging.getLogger("app").setLevel(logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Cortex Microservice")
+
+
+@app.on_event("startup")
+async def configure_logging() -> None:
+    """Re-apply logging config after uvicorn overrides it."""
+    logging.getLogger("app").setLevel(logging.DEBUG)
+    logging.getLogger("cortex").setLevel(logging.INFO)
+
 
 # Enable CORS
 app.add_middleware(
