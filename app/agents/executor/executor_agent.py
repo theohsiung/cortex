@@ -100,6 +100,13 @@ class ExecutorAgent(BaseAgent):
         if context:
             query += f"\n\nContext: {context}"
 
+        logger.debug(
+            "[EXECUTOR_QUERY] step=%d query_length=%d\n--- QUERY START ---\n%s\n--- QUERY END ---",
+            step_index,
+            len(query),
+            query,
+        )
+
         result = await self.execute(query, exec_context=exec_context)
 
         # Check if any tool calls were made for this step

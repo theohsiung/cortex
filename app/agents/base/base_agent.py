@@ -136,6 +136,14 @@ class BaseAgent:
         from google.adk.runners import Runner
         from google.genai.types import Content, Part
 
+        agent_name = getattr(self.agent, "name", type(self.agent).__name__)
+        logger.debug(
+            "[LLM_QUERY] agent=%s query_length=%d\n--- QUERY START ---\n%s\n--- QUERY END ---",
+            agent_name,
+            len(query),
+            query,
+        )
+
         runner = Runner(
             agent=self.agent, session_service=self._get_session_service(), app_name=self.agent.name
         )

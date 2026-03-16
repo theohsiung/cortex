@@ -29,6 +29,7 @@ load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("app").setLevel(logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Cortex Microservice")

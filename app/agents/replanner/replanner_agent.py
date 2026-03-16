@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -11,6 +12,8 @@ from typing import Any, Callable
 from app.agents.base.base_agent import BaseAgent
 from app.agents.replanner.prompts import REPLANNER_SYSTEM_PROMPT, build_replan_prompt
 from app.task.task_manager import TaskManager
+
+logger = logging.getLogger(__name__)
 
 
 @functools.lru_cache(maxsize=1)
@@ -249,6 +252,12 @@ class ReplannerAgent(BaseAgent):
             max_attempts=max_attempts,
             available_tools=available_tools,
             failure_history=failure_history,
+        )
+
+        logger.debug(
+            "[REPLAN_PROMPT] length=%d\n--- REPLAN PROMPT START ---\n%s\n--- REPLAN PROMPT END ---",
+            len(prompt),
+            prompt,
         )
 
         for attempt_num in range(max_parse_retries):
