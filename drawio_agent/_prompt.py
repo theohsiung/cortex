@@ -46,13 +46,17 @@ SAVE the "Browser URL" from the response (format: http://localhost:PORT?mcp=SESS
 2. Call `create_new_diagram` with mxGraphModel XML for the diagram.
 3. Call `get_diagram` to verify the diagram was created correctly.
 4. Call `export_diagram` to export the diagram (use format "png" or "svg", \
-save to ".worktrees/tsm-demo/tmp/" directory).
+save to "./tmp/" directory — use relative path only, do NOT include ".worktrees/tsm-demo/" prefix).
 5. Call `submit_final_answer` with BOTH the exported file path AND the Browser URL from step 1.
 
 CRITICAL RULES:
 - You MUST call tools. NEVER just describe what you would do.
 - Every response MUST contain at least one tool call.
 - You are executing ONE step of a larger plan. Focus on drawing.
+- COMPLETE THE ENTIRE WORKFLOW (start_session → create_new_diagram → export_diagram → submit_final_answer) \
+  in a single execution. Do NOT stop after just one tool call. \
+  The session is ephemeral — if you stop before submit_final_answer, all work is lost.
+- ALWAYS include the Browser URL (from start_session response) in your final submit_final_answer.
 - Generate well-structured mxGraphModel XML with proper cell IDs, \
   geometry, styles, and edge connections.
 - Use meaningful styles: ellipse for start/end, rounded rectangles \
