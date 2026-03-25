@@ -121,11 +121,25 @@ class Cortex:
 
         await emit("plan_created", {"plan_id": plan_id})
 
+        # Phase timing tracker
+        phase_timings: list[tuple[str, float]] = []
+
+        def _start_timer() -> float:
+            return time.time()
+
+        def _record_phase(name: str, start: float) -> float:
+            elapsed = time.time() - start
+            phase_timings.append((name, elapsed))
+            logger.info("⏱ %s took %.2fs", name, elapsed)
+            return elapsed
+
         try:
             # Start sandbox if configured
+            t0 = _start_timer()
             if self.sandbox:
                 logger.info("Starting sandbox...")
                 await self.sandbox.start()
+            _record_phase("sandbox_startup", t0)
 
             # Get sandbox tools
             planner_sandbox_tools = self.sandbox.get_planner_tools() if self.sandbox else []
@@ -162,7 +176,9 @@ class Cortex:
                 planner_query = query
 
             logger.info("\033[95m*** HISTORY (cleaned) ***:\n%s\033[0m", planner_query)
+            t0 = _start_timer()
             await planner.create_plan(planner_query)
+            _record_phase("planning", t0)
             logger.info("Plan created with %d steps", len(plan.steps))
 
             # Emit initial plan structure
@@ -225,6 +241,7 @@ class Cortex:
                     )
 
                     last_error: Exception = Exception("step did not execute")
+                    step_start = _start_timer()
                     for attempt in range(max_retries + 1):
                         try:
                             # Dispatch to correct executor based on step intent
@@ -283,6 +300,7 @@ class Cortex:
                                     extra_tools=executor_sandbox_tools,
                                 )
                                 output = await executor.execute_step(step_idx, context=full_context)
+                            _record_phase(f"step_{step_idx}_execution", step_start)
                             logger.info("✓ Step %d completed", step_idx)
                             return step_idx, output
                         except Exception as e:
@@ -321,6 +339,7 @@ class Cortex:
                         # Finalize step and verify tool calls
                         plan.finalize_step(step_idx)
 
+                        t_verify = _start_timer()
                         verify_result = verifier.verify_step(plan, step_idx)
 
                         # LLM evaluation for all steps that passed mechanical check
@@ -333,6 +352,7 @@ class Cortex:
                             verify_result = await verifier.evaluate_output(
                                 step_desc, result, tool_call_count=completed_calls
                             )
+                        _record_phase(f"step_{step_idx}_verification", t_verify)
 
                         if verify_result.passed:
                             # Verification passed - mark completed
@@ -429,6 +449,7 @@ class Cortex:
                                     },
                                 )
 
+                                t_replan = _start_timer()
                                 replan_result = await replanner.replan(
                                     original_query=planner_query,
                                     failed_step_id=step_idx,
@@ -450,6 +471,8 @@ class Cortex:
                                         tool_history=list(plan.step_tool_history.get(step_idx, [])),
                                     )
                                 )
+
+                                _record_phase(f"step_{step_idx}_replan", t_replan)
 
                                 if replan_result.action == "redesign":
                                     plan.apply_replan(
@@ -499,7 +522,9 @@ class Cortex:
                 progress["total"],
                 progress["blocked"],
             )
+            t0 = _start_timer()
             final_result = await self._aggregate_results(query, plan, step_outputs)
+            _record_phase("aggregation", t0)
 
             logger.info("=== FINAL PLAN STATE ===")
             for i, step in plan.steps.items():
@@ -521,8 +546,16 @@ class Cortex:
                     " | notes: %s" % notes if notes else "",
                 )
 
+            # === PERFORMANCE SUMMARY ===
+            total_time = sum(t for _, t in phase_timings)
+            logger.info("=== ⏱ PERFORMANCE SUMMARY (total %.2fs) ===", total_time)
+            for name, elapsed in sorted(phase_timings, key=lambda x: -x[1]):
+                pct = (elapsed / total_time * 100) if total_time > 0 else 0
+                bar = "█" * int(pct / 2)
+                logger.info("  %-30s %6.2fs  %5.1f%%  %s", name, elapsed, pct, bar)
+
             logger.info("=== EXECUTION COMPLETE ===")
-            await emit("execution_complete", {"result": final_result})
+            await emit("execution_complete", {"result": final_result, "timings": phase_timings})
             return final_result
 
         finally:
